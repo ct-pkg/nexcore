@@ -1,0 +1,8 @@
+/* 普通 .ct 在 `ct build` 模式下也可以 import；限制在 `ct compile` 模式。 */
+#include <stdio.h>
+import abi;
+
+int main(void) {
+    printf("plain importer add=%d\n", nexcore_abi_add(1, 2));
+    return 0;
+}

@@ -1,0 +1,49 @@
+/*
+ * experiments/src/abi.h.ct — 验证 CT 能否导出稳定的 C ABI。
+ *
+ * 生成 abi.c / abi.h；Swift、C、Kotlin/Native 都只依赖 abi.h。
+ */
+#include <stdint.h>
+#include <stddef.h>
+
+pub typedef int (*NexcoreCallback)(void *ctx, int value);
+
+pub struct NexcorePair {
+    int32_t left;
+    double right;
+    void *ctx;
+};
+
+pub int32_t nexcore_abi_add(int32_t a, int32_t b) {
+    return a + b;
+}
+
+pub int nexcore_abi_version(void) {
+    return 1;
+}
+
+pub int nexcore_pair_size(void) {
+    return (int)sizeof(struct NexcorePair);
+}
+
+pub int nexcore_pair_right_offset(void) {
+    return (int)offsetof(struct NexcorePair, right);
+}
+
+pub int nexcore_pair_ctx_offset(void) {
+    return (int)offsetof(struct NexcorePair, ctx);
+}
+
+pub struct NexcorePair nexcore_pair_make(int32_t left, double right, void *ctx) {
+    struct NexcorePair p;
+
+    p.left = left;
+    p.right = right;
+    p.ctx = ctx;
+    return p;
+}
+
+/* 函数指针 + 显式 userdata：CT 侧没有闭包，上下文只能这样传 */
+pub int nexcore_apply(void *ctx, NexcoreCallback cb, int value) {
+    return cb(ctx, value);
+}

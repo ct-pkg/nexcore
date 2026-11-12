@@ -1,0 +1,7 @@
+/* 27. 父命名空间 a 内，限定调用子命名空间 a::b::f。 */
+import a::b::mod;
+namespace a;
+
+pub int run(void) {
+    return a::b::f(1);
+}

@@ -1,0 +1,8 @@
+import a::b::mod::f as f;
+
+typedef int (*Fn)(int);
+
+int main(void) {
+    Fn p = f;
+    return p(1);
+}

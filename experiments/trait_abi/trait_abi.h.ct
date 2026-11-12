@@ -1,0 +1,98 @@
+/*
+ * experiments/trait_abi/trait_abi.h.ct
+ *
+ * 目的：钉死 `use Trait` 对结构体布局的影响，以及导出的 .h 里是否带隐藏 vptr。
+ * 所有尺寸/偏移都由 CT 侧代码计算，Swift/C 侧只读导出的头文件。
+ */
+#include <stdint.h>
+#include <stddef.h>
+
+pub trait Ping {
+    int ping();
+}
+
+pub trait Pong {
+    int pong();
+}
+
+/* 同一组字段，三种宿主形态 */
+pub struct Plain {
+    int32_t a;
+    double b;
+};
+
+pub struct One {
+    int32_t a;
+    double b;
+} use Ping;
+
+pub struct Two {
+    int32_t a;
+    double b;
+} use Ping, Pong;
+
+/* 嵌套：值字段 vs 指针字段 */
+pub struct Holder {
+    int32_t tag;
+    One inner;
+    int32_t tail;
+};
+
+pub struct PtrHolder {
+    int32_t tag;
+    One *inner;
+    int32_t tail;
+};
+
+impl Ping for One {
+    int ping() {
+        return self->a + 1;
+    }
+}
+
+impl Ping for Two {
+    int ping() {
+        return self->a + 1;
+    }
+}
+
+impl Pong for Two {
+    int pong() {
+        return self->a + 2;
+    }
+}
+
+/*
+ * CT 自己的字段表里没有隐藏 vptr（offsetof(struct One, __ping_vptr)
+ * 会报 "struct 'One' has no field"），所以这三个偏移只能借 #ct-raw。
+ */
+#ct-raw
+static int raw_one_off_vptr(void) { return (int)offsetof(struct One, __ping_vptr); }
+static int raw_two_off_ping(void) { return (int)offsetof(struct Two, __ping_vptr); }
+static int raw_two_off_pong(void) { return (int)offsetof(struct Two, __pong_vptr); }
+#ct-endraw
+
+pub int tl_plain_size(void) { return (int)sizeof(struct Plain); }
+pub int tl_plain_off_a(void) { return (int)offsetof(struct Plain, a); }
+pub int tl_plain_off_b(void) { return (int)offsetof(struct Plain, b); }
+
+pub int tl_one_size(void) { return (int)sizeof(struct One); }
+pub int tl_one_off_a(void) { return (int)offsetof(struct One, a); }
+pub int tl_one_off_b(void) { return (int)offsetof(struct One, b); }
+pub int tl_one_off_vptr(void) { return raw_one_off_vptr(); }
+
+pub int tl_two_size(void) { return (int)sizeof(struct Two); }
+pub int tl_two_off_a(void) { return (int)offsetof(struct Two, a); }
+pub int tl_two_off_b(void) { return (int)offsetof(struct Two, b); }
+pub int tl_two_off_ping(void) { return raw_two_off_ping(); }
+pub int tl_two_off_pong(void) { return raw_two_off_pong(); }
+
+pub int tl_holder_size(void) { return (int)sizeof(struct Holder); }
+pub int tl_holder_off_tag(void) { return (int)offsetof(struct Holder, tag); }
+pub int tl_holder_off_inner(void) { return (int)offsetof(struct Holder, inner); }
+pub int tl_holder_off_tail(void) { return (int)offsetof(struct Holder, tail); }
+
+pub int tl_ptrholder_size(void) { return (int)sizeof(struct PtrHolder); }
+pub int tl_ptrholder_off_tag(void) { return (int)offsetof(struct PtrHolder, tag); }
+pub int tl_ptrholder_off_inner(void) { return (int)offsetof(struct PtrHolder, inner); }
+pub int tl_ptrholder_off_tail(void) { return (int)offsetof(struct PtrHolder, tail); }

@@ -1,0 +1,12 @@
+/* 15. 与同名 struct 并存。 */
+import a::b::mod;
+
+struct a {
+    int x;
+};
+
+int main(void) {
+    struct a v;
+    v.x = 1;
+    return a::b::f(v.x);
+}

@@ -1,0 +1,6 @@
+import other::other;
+namespace demo;
+
+pub int run(void) {
+    return other::twice(21);
+}

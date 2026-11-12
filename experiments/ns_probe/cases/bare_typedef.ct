@@ -1,0 +1,6 @@
+import a::b::mod;
+
+int main(void) {
+    Count c = 1;
+    return c;
+}

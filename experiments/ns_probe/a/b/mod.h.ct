@@ -1,0 +1,11 @@
+namespace a::b;
+
+pub int f(int x) {
+    return x + 1;
+}
+
+pub struct Widget {
+    int x;
+};
+
+pub typedef int Count;

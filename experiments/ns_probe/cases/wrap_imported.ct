@@ -1,0 +1,13 @@
+/* 23. 绕法：本单元包一层，再取本地包装函数的地址。 */
+import a::b::mod;
+
+typedef int (*Fn)(int);
+
+static int wrap_f(int x) {
+    return a::b::f(x);
+}
+
+int main(void) {
+    Fn p = wrap_f;
+    return p(1);
+}

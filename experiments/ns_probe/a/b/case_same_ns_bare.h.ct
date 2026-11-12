@@ -1,0 +1,7 @@
+/* 26. 命名空间 a::b 内，对同命名空间的导入函数用裸名调用。 */
+import a::b::mod;
+namespace a::b;
+
+pub int run(void) {
+    return f(1);
+}

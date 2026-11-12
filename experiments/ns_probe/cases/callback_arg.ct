@@ -1,0 +1,12 @@
+/* 6. ns::f 作为回调参数。 */
+import a::b::mod;
+
+typedef int (*Fn)(int);
+
+static int apply(Fn fn, int v) {
+    return fn(v);
+}
+
+int main(void) {
+    return apply(a::b::f, 1);
+}

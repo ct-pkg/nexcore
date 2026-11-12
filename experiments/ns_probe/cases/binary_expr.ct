@@ -1,0 +1,7 @@
+/* 11. 二元表达式中的限定调用。 */
+import a::b::mod;
+
+int main(void) {
+    int y = a::b::f(1) + 2;
+    return y;
+}

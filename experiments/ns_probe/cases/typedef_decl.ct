@@ -1,0 +1,7 @@
+/* 9. 带限定名的 typedef 变量声明。 */
+import a::b::mod;
+
+int main(void) {
+    a::b::Count c = 1;
+    return c;
+}

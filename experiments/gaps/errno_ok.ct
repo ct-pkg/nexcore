@@ -1,0 +1,9 @@
+/* errno 绕法：把访问收进 C shim。 */
+#include <stdio.h>
+#include "errno_shim.h"
+
+int main(void) {
+    shim_set_errno(0);
+    printf("errno=%d\n", shim_get_errno());
+    return 0;
+}

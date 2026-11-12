@@ -1,0 +1,10 @@
+/* GAP 探针：命名空间内 pub 函数，外部用 ns::fn(...) 调用。 */
+namespace demo;
+
+pub int helper(int x) {
+    return x + 1;
+}
+
+int main(void) {
+    return demo::helper(1);
+}

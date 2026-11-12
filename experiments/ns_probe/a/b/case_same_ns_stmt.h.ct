@@ -1,0 +1,7 @@
+/* 2. 同命名空间内，ns::f(...) 作为独立表达式语句。 */
+namespace a::b;
+
+pub int run(void) {
+    a::b::f(1);
+    return 0;
+}

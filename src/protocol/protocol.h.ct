@@ -1,0 +1,39 @@
+#include <stdint.h>
+
+namespace protocol;
+
+/*
+ * 协议 v1 的信封模型（CT/Core 内部，不属于 ABI）。
+ *
+ * 只描述“已经解析成结构”的信封；JSON 的解析与序列化只由 QuickJS
+ * 的 JS_ParseJSON / JS_JSONStringify 完成，这里不实现 JSON parser。
+ */
+
+pub enum NxEnvelopeKind {
+    NX_ENV_REQUEST = 1,
+    NX_ENV_RESULT = 2,
+    NX_ENV_ERROR = 3,
+    NX_ENV_NOTIFICATION = 4,
+}
+
+/* {"id": uint32, "method": string, "params": object} */
+pub struct NxRequestEnvelope {
+    uint32_t id;
+    const char *method;
+    const char *params_json;
+    int32_t params_len;
+}
+
+/* {"id": uint32, "result": any} 或 {"id": uint32, "error": {...}} */
+pub struct NxResponseEnvelope {
+    uint32_t id;
+    const char *result_json;
+    int32_t result_len;
+    const char *error_code;
+    const char *error_message;
+    int32_t retryable;
+}
+
+pub int32_t request_well_formed(const NxRequestEnvelope *req);
+
+pub int32_t response_kind(const NxResponseEnvelope *res);

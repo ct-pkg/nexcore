@@ -1,0 +1,12 @@
+/*
+ * GAP: `ct compile` 模式不接受 import（与扩展名无关，.h.ct 同样报错）。
+ * 实测：import 必须走 `ct build`；`ct compile` 报
+ *   'import' is not supported in compile mode
+ */
+#include <stdio.h>
+import abi;
+
+int main(void) {
+    printf("%d\n", nexcore_abi_add(1, 2));
+    return 0;
+}

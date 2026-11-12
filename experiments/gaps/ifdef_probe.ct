@@ -1,0 +1,12 @@
+/* GAP 探针：文件内 #ifdef。 */
+#include <stdio.h>
+#define NEXCORE_FEATURE 1
+
+int main(void) {
+#ifdef NEXCORE_FEATURE
+    printf("feature on\n");
+#else
+    printf("feature off\n");
+#endif
+    return 0;
+}

@@ -1,0 +1,134 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "quickjs.h"
+
+import js_host;
+
+namespace js_host;
+
+#define NXJH_OK 0
+#define NXJH_ERR -1
+
+/* 只在本单元内使用：runtime/context 的生命周期由 init/shutdown 成对管理。 */
+struct HostState {
+    JSRuntime *rt;
+    JSContext *ctx;
+}
+
+static void free_state(struct HostState *st)
+{
+    if (st == 0) return;
+    if (st->ctx != 0) JS_FreeContext(st->ctx);
+    if (st->rt != 0) JS_FreeRuntime(st->rt);
+    free(st);
+}
+
+void *init(const char *bootstrap_js, int32_t bootstrap_len)
+{
+    struct HostState *st;
+    JSValue v;
+
+    st = malloc(sizeof(struct HostState));
+    if (st == 0) return 0;
+    st->rt = 0;
+    st->ctx = 0;
+    st->rt = JS_NewRuntime();
+    if (st->rt == 0) {
+        free(st);
+        return 0;
+    }
+    st->ctx = JS_NewContext(st->rt);
+    if (st->ctx == 0) {
+        free_state(st);
+        return 0;
+    }
+    if (bootstrap_js != 0 && bootstrap_len > 0) {
+        v = JS_Eval(st->ctx, bootstrap_js, (size_t)bootstrap_len,
+                    "<bootstrap>", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(v)) {
+            /* 清掉挂起的异常，避免后续 eval 读到脏状态。 */
+            v = JS_GetException(st->ctx);
+            JS_FreeValue(st->ctx, v);
+            free_state(st);
+            return 0;
+        }
+        JS_FreeValue(st->ctx, v);
+    }
+    return st;
+}
+
+int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len)
+{
+    struct HostState *st;
+    char *wrapped;
+    char *copy;
+    const char *s;
+    size_t slen;
+    int32_t i;
+    JSValue value;
+    JSValue json;
+
+    if (h == 0 || src == 0 || len < 0 || out == 0 || out_len == 0) return NXJH_ERR;
+    st = h;
+    *out = 0;
+    *out_len = 0;
+
+    /* 包一层括号：`{"id":1}` 作为脚本会被当成块语句，作为表达式才是对象字面量。 */
+    wrapped = malloc((size_t)len + 3);
+    if (wrapped == 0) return NXJH_ERR;
+    wrapped[0] = '(';
+    i = 0;
+    while (i < len) {
+        wrapped[i + 1] = src[i];
+        i = i + 1;
+    }
+    wrapped[len + 1] = ')';
+    wrapped[len + 2] = 0;
+
+    value = JS_Eval(st->ctx, wrapped, (size_t)len + 2, "<message>", JS_EVAL_TYPE_GLOBAL);
+    free(wrapped);
+    if (JS_IsException(value)) {
+        value = JS_GetException(st->ctx);
+        JS_FreeValue(st->ctx, value);
+        return NXJH_ERR;
+    }
+
+    json = JS_JSONStringify(st->ctx, value, JS_UNDEFINED, JS_UNDEFINED);
+    JS_FreeValue(st->ctx, value);
+    if (JS_IsException(json)) {
+        json = JS_GetException(st->ctx);
+        JS_FreeValue(st->ctx, json);
+        return NXJH_ERR;
+    }
+    s = JS_ToCStringLen(st->ctx, &slen, json);
+    if (s == 0) {
+        JS_FreeValue(st->ctx, json);
+        return NXJH_ERR;
+    }
+    copy = malloc(slen + 1);
+    if (copy == 0) {
+        JS_FreeCString(st->ctx, s);
+        JS_FreeValue(st->ctx, json);
+        return NXJH_ERR;
+    }
+    memcpy(copy, s, slen);
+    copy[slen] = 0;
+    *out = copy;
+    *out_len = (int32_t)slen;
+    JS_FreeCString(st->ctx, s);
+    JS_FreeValue(st->ctx, json);
+    return NXJH_OK;
+}
+
+int32_t shutdown(void *h)
+{
+    if (h == 0) return NXJH_ERR;
+    free_state(h);
+    return NXJH_OK;
+}
+
+int32_t turns(void)
+{
+    return 1;
+}

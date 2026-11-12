@@ -1,0 +1,16 @@
+{
+  "units": [
+    {
+      "namespace": "queue",
+      "trait": "Ring",
+      "source": "queue/queue.h.ct",
+      "methods": ["open", "push", "pop", "depth", "close"]
+    },
+    {
+      "namespace": "js_host",
+      "trait": "Host",
+      "source": "js_host/js_host.h.ct",
+      "methods": ["init", "eval", "shutdown", "turns"]
+    }
+  ]
+}

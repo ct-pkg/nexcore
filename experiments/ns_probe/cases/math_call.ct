@@ -1,0 +1,6 @@
+/* 17. 单段命名空间 math::inc(...)。 */
+import math::math;
+
+int main(void) {
+    return math::inc(1);
+}

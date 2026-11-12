@@ -1,0 +1,11 @@
+/* 22. 对照：本单元内定义的函数取地址/作为值。 */
+typedef int (*Fn)(int);
+
+static int local_inc(int x) {
+    return x + 1;
+}
+
+int main(void) {
+    Fn p = local_inc;
+    return p(1);
+}

@@ -1,0 +1,13 @@
+/* 30. 单段命名空间内，本单元函数作为值赋给函数指针。 */
+namespace demo;
+
+typedef int (*Fn)(int);
+
+pub int helper(int x) {
+    return x + 1;
+}
+
+pub int run(void) {
+    Fn p = demo::helper;
+    return p(1);
+}

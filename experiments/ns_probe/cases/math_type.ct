@@ -1,0 +1,8 @@
+/* 19. 单段命名空间类型声明。 */
+import math::math;
+
+int main(void) {
+    math::Widget w;
+    w.x = 1;
+    return w.x;
+}

@@ -1,0 +1,22 @@
+/* GENERATED FROM src/units.json -- DO NOT EDIT. */
+/* generator: nexcore-gen 0.1.0 */
+
+#include "queue.h"
+
+namespace queue;
+
+pub trait Ring {
+    void * open(int32_t capacity);
+    int32_t push(void * handle, const char * data, int32_t len);
+    int32_t pop(void * handle, char ** out_data, int32_t * out_len);
+    int32_t depth(void * handle);
+    int32_t close(void * handle);
+}
+
+map trait Ring for namespace queue {
+    open(capacity) -> queue_open(capacity);
+    push(handle, data, len) -> queue_push(handle, data, len);
+    pop(handle, out_data, out_len) -> queue_pop(handle, out_data, out_len);
+    depth(handle) -> queue_depth(handle);
+    close(handle) -> queue_close(handle);
+}

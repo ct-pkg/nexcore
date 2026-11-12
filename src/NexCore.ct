@@ -1,0 +1,318 @@
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+import NexCore;
+import queue::queue_map;
+import js_host::js_host_map;
+
+/*
+ * 根实现单元：只做 ABI 入口与构建入口，不承担跨单元转发。
+ * 跨单元调用一律经映射单元：queue::Ring.* / js_host::Host.*。
+ *
+ * S1–S5 阶段：消息经 queue 出队 → js_host 用 QuickJS 求值 → outbox →
+ * drain 逐条回调 sink。没有 worker 线程，drain 在调用线程同步执行；
+ * 跨线程与关闭超时预算（NX_E_CLOSE_TIMEOUT）留到 S6。
+ */
+
+#define NEXCORE_HANDLE_MAGIC 0x4E584331u
+#define NEXCORE_STATE_LIVE 0
+#define NEXCORE_STATE_SHUT 1
+
+/* queue 单元的返回码；跨单元只通过约定值判断，不共享枚举。 */
+#define NX_QUEUE_FULL -2
+#define NX_QUEUE_EMPTY -4
+
+/* 设计 §6.4 已分配、骨架尚未实现的统计键号：只在本实现单元内使用，不导出。 */
+#define NX_STAT_RESERVED_FIRST 10
+#define NX_STAT_RESERVED_LAST 14
+
+struct NexCoreHandleImpl {
+    uint32_t magic;
+    int32_t state;
+    void *queue;
+    void *outbox;
+    void *js;
+    void *sink_user;
+    NexCoreSink sink;
+    uint32_t max_message_bytes;
+    int32_t last_error;
+}
+
+int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
+{
+    struct NexCoreHandleImpl *impl;
+    void *q;
+    void *ob;
+    void *js;
+
+    if (out == 0) return NX_E_INVALID_ARGUMENT;
+    *out = 0;
+    if (cfg == 0) return NX_E_INVALID_ARGUMENT;
+    if (cfg->struct_size < NEXCORE_CONFIG_MIN_SIZE) return NX_E_INVALID_ARGUMENT;
+    if (cfg->abi_version != NEXCORE_ABI_VERSION) return NX_E_INVALID_ARGUMENT;
+    if (cfg->protocol_version != NEXCORE_PROTOCOL_VERSION) return NX_E_INVALID_ARGUMENT;
+    if (cfg->reserved != 0) return NX_E_INVALID_ARGUMENT;
+    if ((cfg->flags & 0xFFFFFFFEu) != 0) return NX_E_INVALID_ARGUMENT;
+
+    q = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
+    if (q == 0) return NX_E_INTERNAL;
+    ob = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
+    if (ob == 0) {
+        queue::Ring.close(q);
+        return NX_E_INTERNAL;
+    }
+
+    impl = malloc(sizeof(struct NexCoreHandleImpl));
+    if (impl == 0) {
+        queue::Ring.close(q);
+        queue::Ring.close(ob);
+        return NX_E_INTERNAL;
+    }
+
+    /* bootstrap_js 在这里第一次被真正解引用：交给 QuickJS 全局求值。 */
+    js = js_host::Host.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len);
+    if (js == 0) {
+        queue::Ring.close(q);
+        queue::Ring.close(ob);
+        free(impl);
+        return NX_E_INTERNAL;
+    }
+
+    impl->magic = NEXCORE_HANDLE_MAGIC;
+    impl->state = NEXCORE_STATE_LIVE;
+    impl->queue = q;
+    impl->outbox = ob;
+    impl->js = js;
+    impl->sink_user = 0;
+    impl->sink = 0;
+    impl->max_message_bytes = cfg->max_message_bytes;
+    if (impl->max_message_bytes == 0) {
+        impl->max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
+    }
+    impl->last_error = NX_OK;
+    *out = impl;
+    return NX_OK;
+}
+
+int32_t nexcore_set_sink(NexCoreHandle h, void *user, NexCoreSink sink)
+{
+    struct NexCoreHandleImpl *impl;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (impl->state != NEXCORE_STATE_LIVE) return NX_E_SHUTDOWN;
+    impl->sink_user = user;
+    impl->sink = sink;
+    return NX_OK;
+}
+
+int32_t nexcore_send(NexCoreHandle h, const char *json, size_t len)
+{
+    struct NexCoreHandleImpl *impl;
+    int32_t rc;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (impl->state != NEXCORE_STATE_LIVE) return NX_E_SHUTDOWN;
+    if (json == 0) return NX_E_INVALID_ARGUMENT;
+    if (len == 0) return NX_E_INVALID_ARGUMENT;
+    if (len > (size_t)impl->max_message_bytes) return NX_E_PAYLOAD_TOO_LARGE;
+
+    rc = queue::Ring.push(impl->queue, json, (int32_t)len);
+    if (rc == NX_QUEUE_FULL) {
+        impl->last_error = NX_E_BACKPRESSURE;
+        return NX_E_BACKPRESSURE;
+    }
+    if (rc != 0) {
+        impl->last_error = NX_E_INTERNAL;
+        return NX_E_INTERNAL;
+    }
+    return NX_OK;
+}
+
+/* 把 inbox 里的消息逐条交给 JS，求值结果压入 outbox。 */
+static void pump_inbox(struct NexCoreHandleImpl *impl)
+{
+    char *msg;
+    int32_t len;
+    char *resp;
+    int32_t resp_len;
+    int32_t rc;
+
+    msg = 0;
+    len = 0;
+    rc = queue::Ring.pop(impl->queue, &msg, &len);
+    while (rc == 0) {
+        resp = 0;
+        resp_len = 0;
+        if (js_host::Host.eval(impl->js, msg, len, &resp, &resp_len) == 0) {
+            if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
+                impl->last_error = NX_E_BACKPRESSURE;
+            }
+        } else {
+            impl->last_error = NX_E_INTERNAL;
+        }
+        free(resp);
+        free(msg);
+        msg = 0;
+        len = 0;
+        rc = queue::Ring.pop(impl->queue, &msg, &len);
+    }
+    if (rc != NX_QUEUE_EMPTY) {
+        impl->last_error = NX_E_INTERNAL;
+    }
+}
+
+/* 清空 outbox：逐条回调 sink，*out_count 写实际投递条数。 */
+static void deliver_outbox(struct NexCoreHandleImpl *impl, int32_t *out_count)
+{
+    char *msg;
+    int32_t len;
+    int32_t delivered;
+    int32_t rc;
+
+    delivered = 0;
+    msg = 0;
+    len = 0;
+    rc = queue::Ring.pop(impl->outbox, &msg, &len);
+    while (rc == 0) {
+        if (impl->sink != 0) {
+            impl->sink(impl->sink_user, msg, (size_t)len);
+            delivered = delivered + 1;
+        }
+        free(msg);
+        msg = 0;
+        len = 0;
+        rc = queue::Ring.pop(impl->outbox, &msg, &len);
+    }
+    if (out_count != 0) *out_count = delivered;
+}
+
+int32_t nexcore_drain(NexCoreHandle h, int32_t max_wait_ms, int32_t *out_count)
+{
+    struct NexCoreHandleImpl *impl;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (impl->state != NEXCORE_STATE_LIVE) return NX_E_SHUTDOWN;
+    /*
+     * 同步阶段：drain 在调用线程把 inbox 排空，空队列立即返回。
+     * max_wait_ms 只对未来阻塞式出队生效，这里不消费它。
+     */
+    (void)max_wait_ms;
+    pump_inbox(impl);
+    deliver_outbox(impl, out_count);
+    return NX_OK;
+}
+
+int32_t nexcore_shutdown(NexCoreHandle h)
+{
+    struct NexCoreHandleImpl *impl;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (impl->state == NEXCORE_STATE_SHUT) return NX_OK;
+
+    /* 关闭序列：停收 → 排空 inbox 并投递 → 释放 JS 运行时。 */
+    impl->state = NEXCORE_STATE_SHUT;
+    pump_inbox(impl);
+    deliver_outbox(impl, 0);
+    if (impl->js != 0) {
+        js_host::Host.shutdown(impl->js);
+        impl->js = 0;
+    }
+    /*
+     * 同步阶段排空不会超时，因此 NX_E_CLOSE_TIMEOUT 没有可达分支；
+     * S6 引入 worker 线程与关闭预算后再接这里。
+     */
+    return NX_OK;
+}
+
+int32_t nexcore_free(NexCoreHandle h)
+{
+    struct NexCoreHandleImpl *impl;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (impl->state != NEXCORE_STATE_SHUT) return NX_E_BUSY;
+    /* 兜底：shutdown 未跑到的 JS 句柄也要释放，避免泄漏。 */
+    if (impl->js != 0) {
+        js_host::Host.shutdown(impl->js);
+        impl->js = 0;
+    }
+    if (impl->outbox != 0) {
+        queue::Ring.close(impl->outbox);
+        impl->outbox = 0;
+    }
+    queue::Ring.close(impl->queue);
+    impl->magic = 0;
+    free(impl);
+    return NX_OK;
+}
+
+int32_t nexcore_stat(NexCoreHandle h, int32_t key, int64_t *out)
+{
+    struct NexCoreHandleImpl *impl;
+
+    if (h == 0) return NX_E_INVALID_HANDLE;
+    impl = h;
+    if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
+    if (out == 0) return NX_E_INVALID_ARGUMENT;
+
+    if (key == NX_STAT_INBOX_DEPTH) {
+        *out = queue::Ring.depth(impl->queue);
+        return NX_OK;
+    }
+    if (key == NX_STAT_OUTBOX_DEPTH) {
+        *out = queue::Ring.depth(impl->outbox);
+        return NX_OK;
+    }
+    if (key == NX_STAT_LAST_ERROR) {
+        *out = impl->last_error;
+        return NX_OK;
+    }
+    /* 已实现但尚未采样的键：明确写 0。 */
+    if (key == NX_STAT_PENDING_UI2JS ||
+        key == NX_STAT_PENDING_JS2UI || key == NX_STAT_DROPPED_LATE ||
+        key == NX_STAT_MALFORMED || key == NX_STAT_DROPPED_BACKPRESSURE ||
+        key == NX_STAT_DROPPED_SHUTDOWN || key == NX_STAT_CLOSE_BUDGET_EXCEEDED ||
+        key == NX_STAT_JS_TURNS || key == NX_STAT_JS_JOBS ||
+        key == NX_STAT_JS_EXCEPTIONS) {
+        *out = 0;
+        return NX_OK;
+    }
+    /* 10..14 已分配但未实现：按 design §6.4 返回 NX_E_INTERNAL，禁止返回 0。 */
+    if (key >= NX_STAT_RESERVED_FIRST && key <= NX_STAT_RESERVED_LAST) {
+        return NX_E_INTERNAL;
+    }
+    return NX_E_INVALID_ARGUMENT;
+}
+
+/*
+ * ABI 布局自检。
+ *
+ * 注意：CT 会丢弃 .h.ct 里的 _Static_assert 与 #ct-raw（实测两者都不进导出头），
+ * 因此这些断言只能放在实现单元里，由 check.sh 第 ② 步的 cc 编译来执行——
+ * 它们保护的是“本仓库构建出来的实现对得上头文件”，不是宿主手里的旧头。
+ */
+#ct-raw
+/* 旧调用方的 struct_size 阈值必须仍是 bootstrap_len 末尾。 */
+typedef char nexcore_config_min_size_must_match_v1[
+    (NEXCORE_CONFIG_MIN_SIZE ==
+     (offsetof(struct NexCoreConfig, bootstrap_len) + sizeof(size_t))) ? 1 : -1];
+/* 当前布局必须等于 CURRENT_SIZE（尾字段只允许追加）。 */
+typedef char nexcore_config_size_must_match_current[
+    (sizeof(struct NexCoreConfig) == NEXCORE_CONFIG_CURRENT_SIZE) ? 1 : -1];
+typedef char nexcore_config_min_le_current[
+    (NEXCORE_CONFIG_MIN_SIZE <= NEXCORE_CONFIG_CURRENT_SIZE) ? 1 : -1];
+/* 统计键编号不得漂移：已实现键的边界值必须固定。 */
+typedef char nexcore_stat_key_frozen[
+    (NX_STAT_INBOX_DEPTH == 1 && NX_STAT_OUTBOX_DEPTH == 2 &&
+     NX_STAT_LAST_ERROR == 18 && NX_STAT_NEXT_FREE == 19) ? 1 : -1];
+#ct-endraw

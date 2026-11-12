@@ -1,0 +1,372 @@
+/*
+ * experiments/src/bridge.ct — CT 写的最小 QuickJS 桥接层
+ *
+ * 验证目标：
+ *   1. 同步：JS -> native（nativeAdd）-> JS
+ *   2. 反向：CT -> JS 函数（jsMultiply）
+ *   3. 异步：native 返回 Promise，pthread 完成后由主线程 resolve
+ *   4. 错误：JS 抛异常 / native 抛异常 / Promise reject
+ *
+ * 线程约定：QuickJS 的 runtime/context 只在主线程使用；worker 只写
+ * Job（用 mutex 保护），主线程 drain 后再调用 JS API。
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <time.h>
+#include "quickjs.h"
+
+#define NEXCORE_MAX_JOBS 16
+
+typedef struct Job {
+    int used;
+    int done;
+    int rejected;
+    int32_t arg;
+    int32_t result;
+    JSValue resolve;
+    JSValue reject;
+    pthread_mutex_t *lock;
+} Job;
+
+typedef struct Bridge {
+    JSRuntime *rt;
+    JSContext *ctx;
+    Job jobs[NEXCORE_MAX_JOBS];
+    int job_count;
+    int done;
+    int drained;
+    pthread_mutex_t lock;
+    pthread_t worker;
+} Bridge;
+
+/* ---------- worker：只碰 Job，不碰 JS ---------- */
+
+static void *async_worker(void *arg) {
+    Job *job = (Job *)arg;
+    struct timespec ts;
+
+    ts.tv_sec = 0;
+    ts.tv_nsec = 80 * 1000 * 1000;      /* 80ms，模拟异步 IO */
+    nanosleep(&ts, NULL);
+
+    pthread_mutex_lock(job->lock);
+    job->result = job->arg * 2;
+    job->done = 1;
+    pthread_mutex_unlock(job->lock);
+    return NULL;
+}
+
+/* ---------- native 函数 ---------- */
+
+static JSValue js_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    const char *s;
+
+    (void)this_val;
+    (void)argc;
+    s = JS_ToCString(ctx, argv[0]);
+    if (s) {
+        printf("[js] %s\n", s);
+        JS_FreeCString(ctx, s);
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue js_add(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    int32_t a = 0;
+    int32_t b = 0;
+
+    (void)this_val;
+    (void)argc;
+    JS_ToInt32(ctx, &a, argv[0]);
+    JS_ToInt32(ctx, &b, argv[1]);
+    return JS_NewInt32(ctx, a + b);
+}
+
+static JSValue js_fail(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    (void)this_val;
+    (void)argc;
+    (void)argv;
+    return JS_ThrowTypeError(ctx, "native refused the call");
+}
+
+static JSValue js_async(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    Bridge *b;
+    JSValue funcs[2];
+    JSValue promise;
+    Job *job;
+    int32_t x = 0;
+    int slot;
+
+    (void)this_val;
+    (void)argc;
+    b = (Bridge *)JS_GetContextOpaque(ctx);
+    promise = JS_NewPromiseCapability(ctx, funcs);
+    JS_ToInt32(ctx, &x, argv[0]);
+
+    slot = b->job_count;
+    if (slot >= NEXCORE_MAX_JOBS) {
+        JS_FreeValue(ctx, funcs[0]);
+        JS_FreeValue(ctx, funcs[1]);
+        JS_FreeValue(ctx, promise);
+        return JS_ThrowTypeError(ctx, "job queue full");
+    }
+
+    job = &b->jobs[slot];
+    job->used = 1;
+    job->done = 0;
+    job->rejected = 0;
+    job->arg = x;
+    job->result = 0;
+    job->resolve = funcs[0];
+    job->reject = funcs[1];
+    job->lock = &b->lock;
+    b->job_count++;
+    printf("[c] async scheduled arg=%d slot=%d\n", x, slot);
+
+    pthread_create(&b->worker, NULL, async_worker, job);
+    pthread_detach(b->worker);
+    return promise;
+}
+
+static JSValue js_async_reject(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    Bridge *b;
+    JSValue funcs[2];
+    JSValue promise;
+    Job *job;
+    int32_t x = 0;
+    int slot;
+
+    (void)this_val;
+    (void)argc;
+    b = (Bridge *)JS_GetContextOpaque(ctx);
+    promise = JS_NewPromiseCapability(ctx, funcs);
+    JS_ToInt32(ctx, &x, argv[0]);
+
+    slot = b->job_count;
+    if (slot >= NEXCORE_MAX_JOBS) {
+        JS_FreeValue(ctx, funcs[0]);
+        JS_FreeValue(ctx, funcs[1]);
+        JS_FreeValue(ctx, promise);
+        return JS_ThrowTypeError(ctx, "job queue full");
+    }
+
+    job = &b->jobs[slot];
+    job->used = 1;
+    job->done = 0;
+    job->rejected = 1;
+    job->arg = x;
+    job->result = 0;
+    job->resolve = funcs[0];
+    job->reject = funcs[1];
+    job->lock = &b->lock;
+    b->job_count++;
+    printf("[c] async-reject scheduled arg=%d slot=%d\n", x, slot);
+
+    pthread_create(&b->worker, NULL, async_worker, job);
+    pthread_detach(b->worker);
+    return promise;
+}
+
+static JSValue js_done(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    Bridge *b;
+
+    (void)this_val;
+    (void)argc;
+    (void)argv;
+    b = (Bridge *)JS_GetContextOpaque(ctx);
+    b->done = 1;
+    return JS_UNDEFINED;
+}
+
+/* ---------- 主线程：drain + 泵微任务 ---------- */
+
+static int drain(Bridge *b) {
+    int i;
+    int n = 0;
+
+    for (i = 0; i < b->job_count; i++) {
+        Job *job = &b->jobs[i];
+        int ready = 0;
+
+        pthread_mutex_lock(&b->lock);
+        if (job->used && job->done) {
+            ready = 1;
+        }
+        pthread_mutex_unlock(&b->lock);
+        if (!ready) {
+            continue;
+        }
+
+        if (job->rejected) {
+            JSValue reason = JS_NewString(b->ctx, "worker rejected the job");
+            JSValue r = JS_Call(b->ctx, job->reject, JS_UNDEFINED, 1, &reason);
+            JS_FreeValue(b->ctx, r);
+            JS_FreeValue(b->ctx, reason);
+            printf("[c] rejected slot=%d arg=%d\n", i, (int)job->arg);
+        } else {
+            JSValue value = JS_NewInt32(b->ctx, job->result);
+            JSValue r = JS_Call(b->ctx, job->resolve, JS_UNDEFINED, 1, &value);
+            JS_FreeValue(b->ctx, r);
+            JS_FreeValue(b->ctx, value);
+            printf("[c] resolved slot=%d arg=%d result=%d\n", i, (int)job->arg, (int)job->result);
+        }
+
+        JS_FreeValue(b->ctx, job->resolve);
+        JS_FreeValue(b->ctx, job->reject);
+        job->used = 0;
+        b->drained++;
+        n++;
+    }
+    return n;
+}
+
+static int pump_jobs(Bridge *b) {
+    JSContext *ctx = NULL;
+    int n = 0;
+
+    while (JS_ExecutePendingJob(b->rt, &ctx) > 0) {
+        n++;
+    }
+    return n;
+}
+
+/* ---------- 注册与工具 ---------- */
+
+static void register_native(JSContext *ctx) {
+    JSValue global = JS_GetGlobalObject(ctx);
+
+    JS_SetPropertyStr(ctx, global, "log", JS_NewCFunction(ctx, js_log, "log", 1));
+    JS_SetPropertyStr(ctx, global, "nativeAdd", JS_NewCFunction(ctx, js_add, "nativeAdd", 2));
+    JS_SetPropertyStr(ctx, global, "nativeFail", JS_NewCFunction(ctx, js_fail, "nativeFail", 0));
+    JS_SetPropertyStr(ctx, global, "nativeAsync", JS_NewCFunction(ctx, js_async, "nativeAsync", 1));
+    JS_SetPropertyStr(ctx, global, "nativeAsyncReject", JS_NewCFunction(ctx, js_async_reject, "nativeAsyncReject", 1));
+    JS_SetPropertyStr(ctx, global, "nativeDone", JS_NewCFunction(ctx, js_done, "nativeDone", 0));
+    JS_FreeValue(ctx, global);
+}
+
+static char *read_file(const char *path) {
+    FILE *f;
+    long n;
+    char *buf;
+
+    f = fopen(path, "rb");
+    if (!f) {
+        return NULL;
+    }
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = (char *)malloc((size_t)n + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    fread(buf, 1, (size_t)n, f);
+    buf[n] = 0;
+    fclose(f);
+    return buf;
+}
+
+static void dump_exception(JSContext *ctx, const char *where) {
+    JSValue exc;
+    const char *s;
+
+    exc = JS_GetException(ctx);
+    s = JS_ToCString(ctx, exc);
+    if (s) {
+        printf("[c] exception from %s: %s\n", where, s);
+        JS_FreeCString(ctx, s);
+    }
+    JS_FreeValue(ctx, exc);
+}
+
+int main(int argc, char **argv) {
+    Bridge *b;
+    const char *path;
+    char *src;
+    JSValue r;
+    JSValue global;
+    JSValue fn;
+    JSValue arg;
+    int spins;
+    int pumped;
+
+    if (argc < 2) {
+        printf("usage: %s <script.js>\n", argv[0]);
+        return 2;
+    }
+    path = argv[1];
+    src = read_file(path);
+    if (!src) {
+        printf("[c] cannot read %s\n", path);
+        return 2;
+    }
+
+    b = (Bridge *)calloc(1, sizeof(Bridge));
+    if (!b) {
+        return 2;
+    }
+    pthread_mutex_init(&b->lock, NULL);
+    b->rt = JS_NewRuntime();
+    b->ctx = JS_NewContext(b->rt);
+    JS_SetContextOpaque(b->ctx, b);
+    register_native(b->ctx);
+
+    /* 1) 同步：JS -> native -> JS，以及 native 报错的 try/catch */
+    r = JS_Eval(b->ctx, src, strlen(src), path, JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(r)) {
+        dump_exception(b->ctx, "initial eval");
+    }
+    JS_FreeValue(b->ctx, r);
+
+    /* 2) 反向：CT 直接调用 JS 的 jsMultiply(6) */
+    global = JS_GetGlobalObject(b->ctx);
+    fn = JS_GetPropertyStr(b->ctx, global, "jsMultiply");
+    arg = JS_NewInt32(b->ctx, 6);
+    r = JS_Call(b->ctx, fn, global, 1, &arg);
+    if (JS_IsException(r)) {
+        dump_exception(b->ctx, "jsMultiply");
+    } else {
+        printf("[c] called JS jsMultiply(6) -> %d\n", JS_VALUE_GET_INT(r));
+    }
+    JS_FreeValue(b->ctx, r);
+    JS_FreeValue(b->ctx, arg);
+    JS_FreeValue(b->ctx, fn);
+    JS_FreeValue(b->ctx, global);
+
+    /* 3) 异步：主循环负责 drain 完成项 + 泵微任务 */
+    spins = 0;
+    pumped = 0;
+    while (!b->done && spins < 5000) {
+        drain(b);
+        pumped = pumped + pump_jobs(b);
+        spins++;
+        if (!b->done) {
+            usleep(1000);
+        }
+    }
+    pumped = pumped + pump_jobs(b);
+    printf("[c] pump loop spins=%d jobs=%d microtasks=%d done=%d\n",
+           spins, b->drained, pumped, b->done);
+
+    /* 4) JS 抛异常传回 CT */
+    r = JS_Eval(b->ctx, "throw new Error('js boom')", 26, "<throw>", JS_EVAL_TYPE_GLOBAL);
+    printf("[c] JS throw -> JS_IsException=%d\n", JS_IsException(r));
+    if (JS_IsException(r)) {
+        dump_exception(b->ctx, "throw");
+    }
+    JS_FreeValue(b->ctx, r);
+
+    JS_FreeContext(b->ctx);
+    JS_FreeRuntime(b->rt);
+    pthread_mutex_destroy(&b->lock);
+    free(b);
+    free(src);
+    printf("[c] clean shutdown\n");
+    return 0;
+}

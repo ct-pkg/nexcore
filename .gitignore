@@ -1,0 +1,15 @@
+# 构建产物与中间物
+build/
+*.o
+*.a
+*.so
+*.dylib
+.ctcache/
+
+# 实验产物与第三方源码树（由 experiments/build.sh 自动下载）
+experiments/out/
+experiments/third_party/
+
+# IDE / 系统临时文件
+.screenshots/
+.DS_Store

@@ -1,0 +1,9 @@
+namespace a::b;
+
+pub int local(int x) {
+    return x + 1;
+}
+
+pub int run(void) {
+    return a::b::local(1);
+}

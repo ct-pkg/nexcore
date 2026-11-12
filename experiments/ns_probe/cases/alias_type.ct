@@ -1,0 +1,7 @@
+import a::b::mod::Widget as Widget;
+
+int main(void) {
+    Widget w;
+    w.x = 1;
+    return w.x;
+}

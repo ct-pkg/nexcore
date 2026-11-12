@@ -1,0 +1,10 @@
+/* 绕法：在命名空间内直接裸名调用，或在同命名空间内再导出普通入口。 */
+namespace demo;
+
+pub int helper(int x) {
+    return x + 1;
+}
+
+int main(void) {
+    return helper(1);
+}

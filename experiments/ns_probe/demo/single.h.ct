@@ -1,0 +1,9 @@
+namespace demo;
+
+pub int helper(int x) {
+    return x + 1;
+}
+
+pub int run(void) {
+    return demo::helper(1);
+}

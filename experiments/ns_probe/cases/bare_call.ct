@@ -1,0 +1,5 @@
+import a::b::mod;
+
+int main(void) {
+    return f(1);
+}

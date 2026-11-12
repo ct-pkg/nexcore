@@ -1,0 +1,6 @@
+/* 1. 同命名空间内 ns::f(...) 直接调用（写全 a::b）。 */
+namespace a::b;
+
+pub int run(void) {
+    return a::b::f(1);
+}

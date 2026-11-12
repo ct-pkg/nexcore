@@ -1,0 +1,6 @@
+import a::b::mod;
+namespace c;
+
+pub int run(void) {
+    return f(1);
+}

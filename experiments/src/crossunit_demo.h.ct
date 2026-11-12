@@ -1,0 +1,13 @@
+/*
+ * experiments/src/crossunit_demo.h.ct — 验证 import 跨单元调用。
+ * 普通 .ct 不能 import；承载 import 的单元必须是 .h.ct。
+ */
+#include <stdio.h>
+import abi;
+
+int main(void) {
+    printf("crossunit add=%d version=%d\n",
+           nexcore_abi_add(20, 22),
+           nexcore_abi_version());
+    return 0;
+}

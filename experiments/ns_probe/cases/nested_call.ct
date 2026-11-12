@@ -1,0 +1,6 @@
+/* 10. 嵌套调用 a::b::f(a::b::f(1))。 */
+import a::b::mod;
+
+int main(void) {
+    return a::b::f(a::b::f(1));
+}

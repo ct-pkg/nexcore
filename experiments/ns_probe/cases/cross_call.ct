@@ -1,0 +1,6 @@
+/* 3. 跨命名空间 a::b::f(...)。 */
+import a::b::mod;
+
+int main(void) {
+    return a::b::f(1);
+}

@@ -1,0 +1,20 @@
+/* GENERATED FROM src/units.json -- DO NOT EDIT. */
+/* generator: nexcore-gen 0.1.0 */
+
+#include "js_host.h"
+
+namespace js_host;
+
+pub trait Host {
+    void * init(const char * bootstrap_js, int32_t bootstrap_len);
+    int32_t eval(void * h, const char * src, int32_t len, char ** out, int32_t * out_len);
+    int32_t shutdown(void * h);
+    int32_t turns(void);
+}
+
+map trait Host for namespace js_host {
+    init(bootstrap_js, bootstrap_len) -> js_host_init(bootstrap_js, bootstrap_len);
+    eval(h, src, len, out, out_len) -> js_host_eval(h, src, len, out, out_len);
+    shutdown(h) -> js_host_shutdown(h);
+    turns() -> js_host_turns();
+}

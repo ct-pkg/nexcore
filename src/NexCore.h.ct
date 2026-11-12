@@ -1,0 +1,125 @@
+#include <stdint.h>
+#include <stddef.h>
+
+/*
+ * 根 ABI 单元：只声明跨语言 ABI，不承担跨单元转发。
+ *
+ * 常量用 pub enum 表达：CT 的 #define 只进入生成的 .c，不进入导出头，
+ * 平台侧需要 ABI 版本 / 返回码 / 配置大小，所以必须是导出头可见的编译期常量。
+ */
+
+pub enum NxCode {
+    NX_OK = 0,
+    NX_E_INVALID_ARGUMENT = 1,
+    NX_E_INVALID_HANDLE = 2,
+    NX_E_SHUTDOWN = 3,
+    NX_E_BACKPRESSURE = 4,
+    NX_E_PAYLOAD_TOO_LARGE = 5,
+    NX_E_REENTRANT = 6,
+    NX_E_THREAD = 7,
+    NX_E_SCHEMA_MISMATCH = 8,
+    NX_E_INTERNAL = 9,
+    NX_E_BUSY = 10,
+    NX_E_CLOSE_TIMEOUT = 11,
+}
+
+pub enum NxAbi {
+    NEXCORE_ABI_VERSION = 1,
+    NEXCORE_PROTOCOL_VERSION = 1,
+}
+
+pub enum NxLimit {
+    NEXCORE_DEFAULT_TIMEOUT_MS = 5000,
+    NEXCORE_DEFAULT_MAX_MESSAGE_BYTES = 1048576,
+    NEXCORE_DEFAULT_MAX_PENDING = 1024,
+    NEXCORE_MAX_METHOD_BYTES = 128,
+}
+
+/*
+ * 统计键：跨 ABI 的整数，唯一分配表见 docs/design.md §6.4。
+ * 已分配的 1..18 不改号、不重排、不复用；新增键从 NX_STAT_NEXT_FREE 起顺序追加，
+ * 并同步更新这张注释表。
+ *
+ *   key | 名称                    | key | 名称                   | key | 名称
+ *   ----+-------------------------+-----+------------------------+-----+------------------
+ *    1  | INBOX_DEPTH             |  7  | DROPPED_BACKPRESSURE   | 13  | PUMP_BUDGET (预留)
+ *    2  | OUTBOX_DEPTH            |  8  | DROPPED_SHUTDOWN       | 14  | TIMEOUT (预留)
+ *    3  | PENDING_UI2JS           |  9  | CLOSE_BUDGET_EXCEEDED  | 15  | JS_TURNS
+ *    4  | PENDING_JS2UI           | 10  | CLOSE_HARD_ABORT (预留)| 16  | JS_JOBS
+ *    5  | DROPPED_LATE            | 11  | JS_THREAD_ABORTED (预留)| 17 | JS_EXCEPTIONS
+ *    6  | MALFORMED               | 12  | JS_RUNAWAY (预留)      | 18  | LAST_ERROR
+ *
+ * 10..14 已分配但骨架未实现：nexcore_stat 返回 NX_E_INTERNAL，禁止返回 0。
+ * 19 起尚未分配：未知 key 返回 NX_E_INVALID_ARGUMENT。
+ */
+pub enum NxStatKey {
+    NX_STAT_INBOX_DEPTH = 1,
+    NX_STAT_OUTBOX_DEPTH = 2,
+    NX_STAT_PENDING_UI2JS = 3,
+    NX_STAT_PENDING_JS2UI = 4,
+    NX_STAT_DROPPED_LATE = 5,
+    NX_STAT_MALFORMED = 6,
+    NX_STAT_DROPPED_BACKPRESSURE = 7,
+    NX_STAT_DROPPED_SHUTDOWN = 8,
+    NX_STAT_CLOSE_BUDGET_EXCEEDED = 9,
+    /* 10 NX_STAT_CLOSE_HARD_ABORT / 11 NX_STAT_JS_THREAD_ABORTED /
+     * 12 NX_STAT_JS_RUNAWAY / 13 NX_STAT_PUMP_BUDGET / 14 NX_STAT_TIMEOUT
+     * 预留，不在此声明、不实现。 */
+    NX_STAT_JS_TURNS = 15,
+    NX_STAT_JS_JOBS = 16,
+    NX_STAT_JS_EXCEPTIONS = 17,
+    NX_STAT_LAST_ERROR = 18,
+    /* 下一个可用的统计键编号。 */
+    NX_STAT_NEXT_FREE = 19,
+}
+
+pub typedef void *NexCoreHandle;
+
+pub typedef void (*NexCoreSink)(void *user, const char *json, size_t len);
+
+pub typedef void (*NexCoreLog)(void *user, int32_t level, const char *msg, size_t len);
+
+/*
+ * 唯一的跨 ABI 结构体。硬约束：
+ * - 不使用 trait（trait 会追加隐藏 vptr，平台侧布局会静默错位）；
+ * - struct_size 是最小长度协商，不是严格相等；
+ * - 只在尾部追加字段。
+ */
+pub struct NexCoreConfig {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t protocol_version;
+    uint32_t default_timeout_ms;
+    uint32_t max_message_bytes;
+    uint32_t max_pending;
+    uint32_t flags;
+    uint32_t reserved;
+    int64_t (*now_ms)(void *user);
+    void *clock_user;
+    const char *schema_hash;
+    const char *bootstrap_js;
+    size_t bootstrap_len;
+    /* 以下为可选尾字段：struct_size 只到 bootstrap_len 时视为未提供，库不得越界读取。 */
+    NexCoreLog log;
+    void *log_user;
+}
+
+pub enum NxConfigLayout {
+    NEXCORE_CONFIG_V1_SIZE = offsetof(struct NexCoreConfig, bootstrap_len) + sizeof(size_t),
+    NEXCORE_CONFIG_MIN_SIZE = NEXCORE_CONFIG_V1_SIZE,
+    NEXCORE_CONFIG_CURRENT_SIZE = sizeof(struct NexCoreConfig),
+}
+
+pub int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out);
+
+pub int32_t nexcore_set_sink(NexCoreHandle h, void *user, NexCoreSink sink);
+
+pub int32_t nexcore_send(NexCoreHandle h, const char *json, size_t len);
+
+pub int32_t nexcore_drain(NexCoreHandle h, int32_t max_wait_ms, int32_t *out_count);
+
+pub int32_t nexcore_shutdown(NexCoreHandle h);
+
+pub int32_t nexcore_free(NexCoreHandle h);
+
+pub int32_t nexcore_stat(NexCoreHandle h, int32_t key, int64_t *out);

@@ -1,0 +1,7 @@
+/* 21. 命名空间内调用另一个命名空间的导入函数（显式全限定）。 */
+import a::b::mod;
+namespace c;
+
+pub int run(void) {
+    return a::b::f(1);
+}

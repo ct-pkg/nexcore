@@ -1,0 +1,8 @@
+/* #ifdef 绕法：条件编译放进被 #include 的头文件。 */
+#include <stdio.h>
+#include "ifdef_shim.h"
+
+int main(void) {
+    printf("feature=%d\n", shim_feature_value());
+    return 0;
+}

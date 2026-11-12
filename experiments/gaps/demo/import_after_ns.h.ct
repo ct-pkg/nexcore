@@ -1,0 +1,7 @@
+/* GAP 探针：import 写在 namespace 之后（已知会被静默丢弃）。 */
+namespace demo;
+import abi;
+
+pub int run(void) {
+    return nexcore_abi_add(1, 2);
+}

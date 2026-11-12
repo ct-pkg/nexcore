@@ -1,0 +1,8 @@
+/* 8. 带限定类型名的变量声明：struct a::b::Widget。 */
+import a::b::mod;
+
+int main(void) {
+    struct a::b::Widget w;
+    w.x = 1;
+    return w.x;
+}

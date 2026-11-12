@@ -1,0 +1,9 @@
+namespace math;
+
+pub int inc(int x) {
+    return x + 1;
+}
+
+pub struct Widget {
+    int x;
+};

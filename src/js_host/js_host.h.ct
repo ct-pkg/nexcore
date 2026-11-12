@@ -1,0 +1,21 @@
+#include <stdint.h>
+
+namespace js_host;
+
+/*
+ * QuickJS 宿主：持有 JSRuntime/JSContext，负责 bootstrap 执行与按消息求值。
+ *
+ * 线程约定：runtime/context 只在调用方线程使用（S1–S5 阶段没有 worker 线程），
+ * 因此本单元内部不引入锁；跨线程版本留给后续阶段。
+ */
+pub void *init(const char *bootstrap_js, int32_t bootstrap_len);
+
+/*
+ * 把 src 当作 JS 表达式求值（内部包一层括号，允许 JSON 对象/数组字面量），
+ * 结果经 JSON.stringify 序列化后以 malloc 缓冲返回，调用方负责 free。
+ */
+pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len);
+
+pub int32_t shutdown(void *h);
+
+pub int32_t turns(void);

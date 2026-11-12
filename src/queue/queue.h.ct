@@ -1,0 +1,21 @@
+#include <stdint.h>
+
+namespace queue;
+
+/*
+ * 不透明队列句柄：跨单元只传 void *，调用方不依赖结构布局。
+ * 这里只保留 ABI 骨架需要的入队/深度/释放，出队与线程安全留给后续阶段。
+ */
+pub void *open(int32_t capacity);
+
+pub int32_t push(void *handle, const char *data, int32_t len);
+
+/*
+ * 出队：成功时 *out_data 指向 malloc 的新缓冲（内容为 push 时的字节 + NUL），
+ * 所有权移交调用方，调用方负责 free。空队列返回 -4，参数非法返回 -1。
+ */
+pub int32_t pop(void *handle, char **out_data, int32_t *out_len);
+
+pub int32_t depth(void *handle);
+
+pub int32_t close(void *handle);

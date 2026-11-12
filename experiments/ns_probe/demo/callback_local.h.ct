@@ -1,0 +1,16 @@
+/* 29. 单段命名空间内，本单元函数作为回调参数。 */
+namespace demo;
+
+typedef int (*Fn)(int);
+
+pub int helper(int x) {
+    return x + 1;
+}
+
+static int apply(Fn fn, int v) {
+    return fn(v);
+}
+
+pub int run(void) {
+    return apply(demo::helper, 1);
+}

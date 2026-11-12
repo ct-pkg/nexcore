@@ -1,0 +1,6 @@
+/* 16. 命名空间内只写部分限定 b::f(...)。 */
+namespace a::b;
+
+pub int run(void) {
+    return b::f(1);
+}

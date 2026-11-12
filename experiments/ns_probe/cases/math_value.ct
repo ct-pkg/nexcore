@@ -1,0 +1,9 @@
+/* 18. 单段命名空间函数作为值。 */
+import math::math;
+
+typedef int (*Fn)(int);
+
+int main(void) {
+    Fn p = math::inc;
+    return p(1);
+}

@@ -1,0 +1,7 @@
+/* 13. 与同名局部变量并存。 */
+import a::b::mod;
+
+int main(void) {
+    int a = 5;
+    return a::b::f(1) + a;
+}

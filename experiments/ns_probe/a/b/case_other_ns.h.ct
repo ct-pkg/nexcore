@@ -1,0 +1,7 @@
+/* 28. 命名空间 a::b 内，限定调用另一个导入命名空间 math::inc。 */
+import math::math;
+namespace a::b;
+
+pub int run(void) {
+    return math::inc(1);
+}

@@ -1,0 +1,8 @@
+/* 12. 三目表达式中的限定调用。 */
+import a::b::mod;
+
+int main(int argc, char **argv) {
+    int y = argc > 0 ? a::b::f(1) : 0;
+    (void)argv;
+    return y;
+}

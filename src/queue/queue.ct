@@ -1,0 +1,103 @@
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
+import queue;
+
+namespace queue;
+
+#define NXQ_ERR_ARG -1
+#define NXQ_ERR_FULL -2
+#define NXQ_ERR_MEM -3
+#define NXQ_ERR_EMPTY -4
+
+/* 单元内部结构：不 pub，不进入导出头。 */
+struct Ring {
+    int32_t capacity;
+    int32_t count;
+    char **items;
+}
+
+void *open(int32_t capacity)
+{
+    struct Ring *r;
+
+    if (capacity <= 0) return 0;
+    r = malloc(sizeof(struct Ring));
+    if (r == 0) return 0;
+    r->items = calloc((size_t)capacity, sizeof(char *));
+    if (r->items == 0) {
+        free(r);
+        return 0;
+    }
+    r->capacity = capacity;
+    r->count = 0;
+    return r;
+}
+
+int32_t push(void *handle, const char *data, int32_t len)
+{
+    struct Ring *r;
+    char *copy;
+
+    if (handle == 0 || data == 0 || len < 0) return NXQ_ERR_ARG;
+    r = handle;
+    if (r->count >= r->capacity) return NXQ_ERR_FULL;
+    copy = malloc((size_t)len + 1);
+    if (copy == 0) return NXQ_ERR_MEM;
+    if (len > 0) memcpy(copy, data, (size_t)len);
+    copy[len] = 0;
+    r->items[r->count] = copy;
+    r->count = r->count + 1;
+    return 0;
+}
+
+int32_t pop(void *handle, char **out_data, int32_t *out_len)
+{
+    struct Ring *r;
+    char *item;
+    int32_t i;
+    int32_t len;
+
+    if (handle == 0 || out_data == 0 || out_len == 0) return NXQ_ERR_ARG;
+    r = handle;
+    *out_data = 0;
+    *out_len = 0;
+    if (r->count <= 0) return NXQ_ERR_EMPTY;
+    item = r->items[0];
+    len = (int32_t)strlen(item);
+    i = 1;
+    while (i < r->count) {
+        r->items[i - 1] = r->items[i];
+        i = i + 1;
+    }
+    r->items[r->count - 1] = 0;
+    r->count = r->count - 1;
+    *out_data = item;
+    *out_len = len;
+    return 0;
+}
+
+int32_t depth(void *handle)
+{
+    struct Ring *r;
+
+    if (handle == 0) return NXQ_ERR_ARG;
+    r = handle;
+    return r->count;
+}
+
+int32_t close(void *handle)
+{
+    struct Ring *r;
+    int32_t i;
+
+    if (handle == 0) return NXQ_ERR_ARG;
+    r = handle;
+    for (i = 0; i < r->count; i = i + 1) {
+        free(r->items[i]);
+    }
+    free(r->items);
+    free(r);
+    return 0;
+}

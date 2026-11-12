@@ -1,0 +1,10 @@
+/* 14. 与同名函数并存。 */
+import a::b::mod;
+
+static int a(int x) {
+    return x + 100;
+}
+
+int main(void) {
+    return a::b::f(a(1));
+}
