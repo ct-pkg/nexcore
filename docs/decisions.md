@@ -409,4 +409,4 @@
 
 **后果**：`src/NexCore.ct` 5 个调用点改名；新增 `src/js_backend/`（接口 + 空实现 + 生成物映射）；`units.json` 移除 `js_host` 条目并删除其生成映射；⑧⑨/smoke 三条 JS 语义检查移出 P1 绿线，改由 P2 承担。完整执行清单、判据与实施记录见 `docs/reviews/nexcore-p1-quickjs-ruling.md`。
 
-**实施状态（2026-11-15）**：8 步已落地。`bash tools/check.sh` rc=0（末行带 `NEXCORE_JS=null`），⑧⑨/smoke 记 SKIP 不计通过；`NEXCORE_JS=quickjs` 档因「同接口命名空间无法在构建期指向两套实现」尚未接线，当前 rc=2 明确拒绝，桥接能力由 `experiments/build.sh` 覆盖。
+**实施状态（2026-11-15）**：8 步已落地。`bash tools/check.sh` rc=0（末行带 `NEXCORE_JS=null`），⑧⑨/smoke 记 SKIP 不计通过；同日 P2 施工完成接线——`NEXCORE_JS=quickjs` 走同目录第二实现 `js_backend_quickjs.ct`，⑧⑨/smoke 真跑 PASS，null 档行为不变。细节见 `docs/reviews/nexcore-p2-card-draft.md` §9。

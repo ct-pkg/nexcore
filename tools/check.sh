@@ -19,8 +19,8 @@
 #   bash tools/check.sh g1..   未实现，退出码 2（不能跑的门禁不许装绿）
 #
 # 环境变量：
-#   NEXCORE_JS=null      （默认，唯一可跑档）P1 档：空后端，不链接引擎；⑧⑨/smoke 记 SKIP，不计通过
-#   NEXCORE_JS=quickjs   未接线（P2 事项），当前直接退出码 2
+#   NEXCORE_JS=null      （默认）P1 档：空后端，不链接引擎；⑧⑨/smoke 记 SKIP，不计通过
+#   NEXCORE_JS=quickjs   P2 档：同目录第二实现 js_backend_quickjs.ct，⑧⑨/smoke 真跑
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -31,18 +31,27 @@ ABI=build/abi
 IMPL=build/impl
 BIN=build/bin
 QJS=experiments/third_party/quickjs
-# JS 后端档位（D-21）：
-#   null    —— P1 出口用；实现单元是 src/js_backend（空实现），不链接任何引擎。
-#   quickjs —— P2 档，尚未接线：js_host 的 QuickJS 实现还没有注册成 js_backend 的后端，
-#              现在跑只会假装绿，所以直接拒绝（退出码 2），不参与 P1 绿线。
+# JS 后端档位（D-21 / P2 卡）：
+#   null    —— P1 出口用；实现单元是 src/js_backend/js_backend.ct（空实现），不链接引擎。
+#   quickjs —— P2 档；同一目录同一 namespace 的第二实现 js_backend_quickjs.ct，
+#              链接 experiments/third_party/quickjs。
+# CT 约束（实测，勿改方案）：namespace 必须等于目录名；实现单元首段 import 必须是
+# 自己的 .h.ct。所以两档只能靠「同目录、换实现文件」切换，不能换目录、不能条件编译。
 JS_BACKEND="${NEXCORE_JS:-null}"
 case "$JS_BACKEND" in
   null)
+    BACKEND_UNIT="js_backend/js_backend"
+    QJS_INC=""
+    QJS_LIB=""
     ;;
   quickjs)
-    printf 'NEXCORE_JS=quickjs 尚未接线（D-21 步骤 8）：js_host 的 QuickJS 实现还没有注册为 js_backend 的后端。\n' >&2
-    printf 'P1 出口用 NEXCORE_JS=null；QuickJS 桥接能力目前由 experiments/build.sh 覆盖。\n' >&2
-    exit 2
+    BACKEND_UNIT="js_backend/js_backend_quickjs"
+    QJS_INC="-isystem $QJS"
+    QJS_LIB="$QJS/libquickjs.a"
+    if [ ! -f "$QJS_LIB" ]; then
+      printf 'NEXCORE_JS=quickjs 需要 %s，当前不存在（先跑 experiments/build.sh）\n' "$QJS_LIB" >&2
+      exit 2
+    fi
     ;;
   *)
     printf 'NEXCORE_JS must be null or quickjs (got: %s)\n' "$JS_BACKEND" >&2
@@ -216,7 +225,10 @@ echo "①c forward-decls golden: PASS"
 echo "== 2. Pass 2: implementation =="
 # 实现单元清单：既作为构建输入，也作为 ②a 的产物清单，只维护这一份。
 # 顺序与 design §6.1 一致：根单元首位。
-IMPL_UNITS=(NexCore queue/queue js_backend/js_backend protocol/protocol)
+IMPL_UNITS=(NexCore queue/queue "$BACKEND_UNIT" protocol/protocol)
+# 接口头必须独立生成（先于实现单元，避免覆盖实现产物）：quickjs 档的实现文件
+# 只带自己的 .h.ct，不会产出 js_backend.h，而 NexCore.c 里 import 的是 js_backend::js_backend_map。
+ct build --emit-c --ns-root "$SRC" -I "$SRC" "$SRC/js_backend/js_backend.h.ct" -o "$IMPL" >/dev/null
 ct build --emit-c --ns-root "$SRC" -I "$SRC" \
   $(for u in "${IMPL_UNITS[@]}"; do printf '%s ' "$SRC/$u.ct"; done) \
   -o "$IMPL"
@@ -236,6 +248,7 @@ echo "== 2b. strict cc per implementation .c =="
 for c in "$IMPL"/*.c; do
   "$CC" "${CFLAGS[@]}" \
     -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" \
+    $QJS_INC \
     -fsyntax-only "$c"
 done
 echo "②b cc -Werror=implicit-function-declaration: PASS ($(ls "$IMPL"/*.c | wc -l | tr -d ' ') files)"
@@ -245,6 +258,7 @@ mkdir -p "$IMPL/obj"
 for c in "$IMPL"/*.c; do
   "$CC" "${CFLAGS[@]}" \
     -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" \
+    $QJS_INC \
     -c "$c" -o "$IMPL/obj/$(basename "${c%.c}").o"
 done
 # Mach-O 的 C 符号带前导下划线：实际输出是 `T _nexcore_create`，所以用 `_?`。
@@ -387,8 +401,8 @@ bash tools/check-boundaries.sh "$SRC" experiments/src
 
 echo "== 6. stat key contract =="
 "$CC" "${CFLAGS[@]}" \
-  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" \
-  tests/stat_keys.c "$IMPL"/*.c -lm -lpthread -o "$BIN/stat_keys"
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/stat_keys.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/stat_keys"
 "$BIN/stat_keys"
 echo "⑥ stat key contract: PASS"
 
@@ -398,10 +412,32 @@ echo "== 7. queue FIFO =="
 "$BIN/queue_fifo"
 echo "⑦ queue FIFO: PASS"
 
+if [ "$JS_BACKEND" = "quickjs" ]; then
+echo "== 8. bootstrap_js executed =="
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/bootstrap.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/bootstrap"
+"$BIN/bootstrap"
+echo "⑧ bootstrap_js executed: PASS"
+
+echo "== 9. drain -> sink end to end =="
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/drain_e2e.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/drain_e2e"
+"$BIN/drain_e2e"
+echo "⑨ drain -> sink: PASS"
+
+echo "== smoke: cross-unit call chain =="
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/smoke.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/smoke"
+"$BIN/smoke"
+else
 echo "⑧ bootstrap_js executed: SKIP (NEXCORE_JS=null：空后端不求值，不计通过)"
 echo "⑨ drain -> sink: SKIP (NEXCORE_JS=null：空后端不产出响应，不计通过)"
 echo "smoke: SKIP (NEXCORE_JS=null：端到端依赖 JS 求值，不计通过)"
-echo "   JS 语义检查（⑧⑨/smoke）已移出 P1 绿线（D-21，docs/reviews/nexcore-p1-quickjs-ruling.md）"
+echo "   JS 语义检查（⑧⑨/smoke）在 null 档不覆盖（D-21）；quickjs 档真跑"
+fi
 
 echo "== 10. libnexcore 产物面（依赖 + 符号） =="
 # 只导出 ABI 的 7 个函数；内部单元符号一律隐藏（ACC-A-02 白名单）
@@ -416,7 +452,7 @@ _nexcore_free
 SYMS
 "$CC" "${CFLAGS[@]}" -dynamiclib \
   -Wl,-exported_symbols_list,"$BIN/exports.txt" \
-  -o "$BIN/libnexcore.dylib" "$IMPL"/obj/*.o -lm -lpthread
+  -o "$BIN/libnexcore.dylib" "$IMPL"/obj/*.o $QJS_LIB -lm -lpthread
 echo "otool -L:"
 otool -L "$BIN/libnexcore.dylib"
 if otool -L "$BIN/libnexcore.dylib" | grep -qi 'quickjs'; then

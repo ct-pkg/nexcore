@@ -44,6 +44,7 @@
 - **改了什么**：`NEXCORE_JS=quickjs bash tools/check.sh` 直接退出码 2，打印未接线原因。
 - **为什么不放它跑**：当前 `NEXCORE_JS` 只控制「是否链接引擎」，而实现单元固定是空后端 `js_backend`。让 quickjs 档跑下去，⑧⑨/smoke 会因为 `eval` 恒 `-1` 而红——看起来像回归，实际是接线没做。按仓库既有约定「不能跑的门禁不许装绿」，宁可直接拒绝也不产出误导性的红/绿。
 - **影响**：P1 期间「QuickJS 能跑通」的唯一证据是 `experiments/build.sh`（默认档 5 项全 PASS，含 bridge 的 7 条断言），不是 `check.sh`。P2 接线路径已实测（同目录第二实现可行），见 `docs/reviews/nexcore-p2-card-draft.md`；接线完成前，`rc=2` 是本档的安全默认。
+- **后续（2026-11-15 P2 施工后）**：该限制已解除。`NEXCORE_JS=quickjs bash tools/check.sh` 现在 rc=0，⑧⑨/smoke 真跑 PASS；null 档保持 SKIP 语义不变。本节保留的是 P1 收口当时的状态记录。
 
 ## 3. 本次收口的机械证据
 

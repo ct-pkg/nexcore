@@ -1,0 +1,31 @@
+#include <stdint.h>
+
+/*
+ * 非注册单元：仅 `NEXCORE_JS=quickjs` 档使用，不进 units.json。
+ *
+ * 两条 CT 约束（2026-11-15 实测，勿删）：
+ *   1. namespace 必须等于目录名。把实现放到别的目录会失败：
+ *      `ctc: namespace 'js_backend' does not match the directory 'js_host_null'`。
+ *   2. 实现单元的第一条 import 必须是自己的 .h.ct，且文件名与单元名绑定。
+ *      改名同目录文件会红在 ⑤a：`实现单元首段 import 必须是 import <单元名>;`。
+ * 因此第二实现只能放在同一目录、同一 namespace 下，靠构建期只编其中一个来切换。
+ */
+namespace js_backend;
+
+/*
+ * QuickJS 实现：持有 JSRuntime/JSContext，负责 bootstrap 执行与按消息求值。
+ *
+ * 线程约定：runtime/context 只在调用方线程使用（P1/P2 没有 worker 线程），
+ * 因此本单元内部不引入锁；跨线程版本留给后续阶段。
+ */
+pub void *init(const char *bootstrap_js, int32_t bootstrap_len);
+
+/*
+ * 把 src 当作 JS 表达式求值（内部包一层括号，允许 JSON 对象/数组字面量），
+ * 结果经 JSON.stringify 序列化后以 malloc 缓冲返回，调用方负责 free。
+ */
+pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len);
+
+pub int32_t shutdown(void *h);
+
+pub int32_t turns(void);

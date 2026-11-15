@@ -1,6 +1,6 @@
 # P2 卡草案：把 QuickJS 实现接进 `js_backend` 接口
 
-> 状态：**草案，未施工**（2026-11-15）。上游：`docs/decisions.md` D-21、`docs/reviews/nexcore-p1-quickjs-ruling.md`。
+> 状态：**已施工**（2026-11-15）。上游：`docs/decisions.md` D-21、`docs/reviews/nexcore-p1-quickjs-ruling.md`。
 > 本卡只写判据、前置与方案；不新增代码、不改 `docs/roadmap.md` 与验收条目。
 
 ## 1. 目标
@@ -81,3 +81,25 @@
 - 不把 QuickJS 重新登记成独立单元（`units.json` 只保留 `js_backend`）。
 - 不在本卡恢复 `js_host_map.m.ct`（那是 D-21 明确删掉的生成物）。
 - 不顺便重构 `experiments/build.sh` 的探针结构。
+
+---
+
+## 9. 实施记录（2026-11-15）
+
+两条 CT 约束已固化进代码注释，不再只活在对话或文档里：
+
+- `src/js_backend/js_backend_quickjs.h.ct` 顶部注明「namespace 必须等于目录名」「首段 import 必须是自己 .h.ct」，并写明因此第二实现只能同目录；
+- `src/js_backend/js_backend_quickjs.ct` 顶部重复同一组约束，并说明「null 档编 `js_backend.ct`，quickjs 档编本文件」；
+- `tools/check.sh` 的档位注释同样记录这两条，防止后来人改回「换目录」方案。
+
+实测（副本，`ct v0.44.2`，QuickJS 静态库复用）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `NEXCORE_JS=quickjs bash tools/check.sh` | rc=0，`ALL CHECKS PASSED (NEXCORE_JS=quickjs)`；⑧ `PASS`、⑨ `PASS`、smoke 实际执行（无 SKIP） |
+| `bash tools/check.sh`（null 档） | rc=0，`ALL CHECKS PASSED (NEXCORE_JS=null)`；⑧⑨/smoke 仍是 SKIP 且不计通过 |
+| 零删除回退：给 quickjs 分支加回 `exit 2` | null 档 rc=0 不变；quickjs 档 rc=2 打印拒绝原因；复原后 quickjs 档回到 rc=0 |
+
+**过程中补的一处**：②a 现在先单独生成 `js_backend.h`（接口头），再生成实现单元。原因是 quickjs 档的实现文件只带自己的 `js_backend_quickjs.h.ct`，不会产出 `js_backend.h`，而 `NexCore.c` 里 `import js_backend::js_backend_map` 需要它。顺序必须先头后单元，否则第二次生成会把实现 `.c` 覆盖成空文件，链接时报 `_js_backend_init` 未定义。
+
+**未做**：卡里工作项 4（删除 `src/js_host/*`）按「稳定一轮后再删」保留，当前 `src/js_host/` 与 `js_backend_quickjs.ct` 两处代码并存，尚未漂移。
