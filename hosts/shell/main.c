@@ -1,11 +1,13 @@
 /*
- * hosts/shell/main.c — PH-11 的 `nex` 解释器 MVP。
+ * hosts/shell/main.c — PH-11/PH-12 的 `nex` 解释器。
  *
  * 只消费公开 ABI（build/abi/NexCore.h）：不 import src/ 的单元，不链中间对象。
- * 流程：读脚本 → create（程序模式 + Shell.print）→ send → drain → 打结果 → exit code。
+ * 用法：nex <script> | nex -e '<code>' | nex -
+ * 流程：读脚本 → create（程序模式 + Shell.print + process 快照）→ send → drain → 打结果。
  *
- * 退出码：0 成功；1 脚本错误（库置了 LAST_ERROR）；2 用法或 IO 失败。
+ * 退出码：0 成功；1 脚本错误；2 用法/IO 失败；130 收到 SIGINT。
  */
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,34 +17,102 @@
 /* 与库投递的 $error 前缀逐字节一致（见 src/NexCore.ct push_script_error）。 */
 static const char ERROR_PREFIX[] = "{\"code\":\"E_JS_EXCEPTION\"";
 
+static volatile sig_atomic_t g_sigint = 0;
+
+static void on_sigint(int sig)
+{
+    (void)sig;
+    g_sigint = 1;
+}
+
+extern char **environ;
+
+struct Buf {
+    char *p;
+    size_t len;
+    size_t cap;
+};
+
+static int buf_add(struct Buf *b, const char *s, size_t n)
+{
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap == 0 ? 256 : b->cap;
+        char *p;
+
+        while (cap < b->len + n + 1) cap *= 2;
+        p = realloc(b->p, cap);
+        if (p == 0) return -1;
+        b->p = p;
+        b->cap = cap;
+    }
+    memcpy(b->p + b->len, s, n);
+    b->len += n;
+    b->p[b->len] = 0;
+    return 0;
+}
+
+/* 追加一个 JSON 字符串（含两端引号）；JSON 字符串同时是合法的 JS 字面量。 */
+static int buf_json_str(struct Buf *b, const char *s)
+{
+    static const char HEX[] = "0123456789abcdef";
+    size_t i;
+
+    if (buf_add(b, "\"", 1) != 0) return -1;
+    for (i = 0; s[i] != 0; i++) {
+        unsigned char c = (unsigned char)s[i];
+        char esc[6];
+
+        if (c == '"' || c == '\\') {
+            esc[0] = '\\';
+            esc[1] = (char)c;
+            if (buf_add(b, esc, 2) != 0) return -1;
+        } else if (c < 0x20) {
+            esc[0] = '\\';
+            esc[1] = 'u';
+            esc[2] = '0';
+            esc[3] = '0';
+            esc[4] = HEX[(c >> 4) & 0xF];
+            esc[5] = HEX[c & 0xF];
+            if (buf_add(b, esc, 6) != 0) return -1;
+        } else {
+            if (buf_add(b, (const char *)&c, 1) != 0) return -1;
+        }
+    }
+    return buf_add(b, "\"", 1);
+}
+
+static char *read_stream(FILE *f, size_t *out_len)
+{
+    struct Buf b;
+    char chunk[4096];
+    size_t n;
+
+    memset(&b, 0, sizeof(b));
+    while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
+        if (buf_add(&b, chunk, n) != 0) {
+            free(b.p);
+            return 0;
+        }
+    }
+    if (b.p == 0) {
+        b.p = malloc(1);
+        if (b.p == 0) return 0;
+        b.p[0] = 0;
+    }
+    *out_len = b.len;
+    return b.p;
+}
+
 static char *read_file(const char *path, size_t *out_len)
 {
     FILE *f;
-    long size;
     char *buf;
-    size_t n;
 
+    if (strcmp(path, "-") == 0) return read_stream(stdin, out_len);
     f = fopen(path, "rb");
     if (f == 0) return 0;
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return 0;
-    }
-    size = ftell(f);
-    if (size < 0) {
-        fclose(f);
-        return 0;
-    }
-    rewind(f);
-    buf = malloc((size_t)size + 1);
-    if (buf == 0) {
-        fclose(f);
-        return 0;
-    }
-    n = fread(buf, 1, (size_t)size, f);
+    buf = read_stream(f, out_len);
     fclose(f);
-    buf[n] = 0;
-    *out_len = n;
     return buf;
 }
 
@@ -104,12 +174,72 @@ static int32_t on_native(void *user, const char *name, size_t name_len,
     return 0;
 }
 
+/*
+ * 注入 process 快照（argv/env）。argv[0] 固定为 "nex"，argv[1] 是脚本名或 "-e"，
+ * 其余原样透传；env 取自启动时的 environ，脚本内修改不回写宿主（K-5）。
+ */
+static char *build_bootstrap(int argc, char **argv, const char *script_name)
+{
+    static const char HEAD[] = "globalThis.process=Object.freeze({argv:Object.freeze([";
+    static const char MID[] = "]),env:Object.freeze({";
+    static const char TAIL[] = "})});";
+    struct Buf b;
+    int i;
+    int first_env;
+
+    memset(&b, 0, sizeof(b));
+    if (buf_add(&b, HEAD, sizeof(HEAD) - 1) != 0) goto fail;
+    if (buf_json_str(&b, "nex") != 0) goto fail;
+    if (buf_add(&b, ",", 1) != 0) goto fail;
+    if (buf_json_str(&b, script_name) != 0) goto fail;
+    for (i = 2; i < argc; i++) {
+        if (buf_add(&b, ",", 1) != 0) goto fail;
+        if (buf_json_str(&b, argv[i]) != 0) goto fail;
+    }
+    if (buf_add(&b, MID, sizeof(MID) - 1) != 0) goto fail;
+    first_env = 1;
+    if (environ != 0) {
+        for (i = 0; environ[i] != 0; i++) {
+            const char *eq = strchr(environ[i], '=');
+            char *key;
+            size_t klen;
+
+            if (eq == 0) continue;
+            klen = (size_t)(eq - environ[i]);
+            key = malloc(klen + 1);
+            if (key == 0) goto fail;
+            memcpy(key, environ[i], klen);
+            key[klen] = 0;
+            if (!first_env && buf_add(&b, ",", 1) != 0) {
+                free(key);
+                goto fail;
+            }
+            if (buf_json_str(&b, key) != 0 || buf_add(&b, ":", 1) != 0 ||
+                buf_json_str(&b, eq + 1) != 0) {
+                free(key);
+                goto fail;
+            }
+            free(key);
+            first_env = 0;
+        }
+    }
+    if (buf_add(&b, TAIL, sizeof(TAIL) - 1) != 0) goto fail;
+    return b.p;
+
+fail:
+    free(b.p);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     static const char NAMES[] = "[\"Shell.print\"]";
     struct NexCoreConfig cfg;
     NexCoreHandle h = 0;
     char *script;
+    char *bootstrap;
+    const char *script_name;
+    const char *inline_code;
     size_t script_len;
     size_t names_len;
     int32_t rc;
@@ -117,12 +247,35 @@ int main(int argc, char **argv)
     int64_t last_error;
 
     if (argc < 2) {
-        fprintf(stderr, "usage: nex <script>\n");
+        fprintf(stderr, "usage: nex <script> | nex -e '<code>' | nex -\n");
         return 2;
     }
-    script = read_file(argv[1], &script_len);
-    if (script == 0) {
-        fprintf(stderr, "nex: cannot read %s\n", argv[1]);
+    inline_code = 0;
+    script_name = 0;
+    if (strcmp(argv[1], "-e") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "nex: -e requires code\n");
+            return 2;
+        }
+        inline_code = argv[2];
+        script_name = "-e";
+        script = malloc(strlen(inline_code) + 1);
+        if (script == 0) return 2;
+        memcpy(script, inline_code, strlen(inline_code) + 1);
+        script_len = strlen(inline_code);
+    } else {
+        script_name = argv[1];
+        script = read_file(argv[1], &script_len);
+        if (script == 0) {
+            fprintf(stderr, "nex: cannot read %s\n", argv[1]);
+            return 2;
+        }
+    }
+
+    bootstrap = build_bootstrap(argc, argv, script_name);
+    if (bootstrap == 0) {
+        fprintf(stderr, "nex: cannot build process snapshot\n");
+        free(script);
         return 2;
     }
 
@@ -134,13 +287,18 @@ int main(int argc, char **argv)
     cfg.max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
     cfg.max_pending = NEXCORE_DEFAULT_MAX_PENDING;
     cfg.eval_mode = NEXCORE_EVAL_PROGRAM;
+    cfg.bootstrap_js = bootstrap;
+    cfg.bootstrap_len = strlen(bootstrap);
     cfg.native_call = on_native;
     cfg.native_user = 0;
     cfg.native_names = NAMES;
     names_len = strlen(NAMES);
     cfg.native_names_len = names_len;
 
+    signal(SIGINT, on_sigint);
+
     rc = nexcore_create(&cfg, &h);
+    free(bootstrap);
     if (rc != NX_OK || h == 0) {
         fprintf(stderr, "nex: create failed rc=%d\n", (int)rc);
         free(script);
@@ -175,5 +333,6 @@ int main(int argc, char **argv)
     nexcore_stat(h, NX_STAT_LAST_ERROR, &last_error);
     nexcore_shutdown(h);
     nexcore_free(h);
+    if (g_sigint != 0) return 130;
     return last_error == 0 ? 0 : 1;
 }
