@@ -94,6 +94,15 @@ set -e
 [ "$rc" -eq 1 ] || fail "预算超时应 rc=1，实际 rc=$rc"
 printf '%s' "$err" | grep -q "timeout" || fail "预算超时 stderr 无 timeout：$err"
 
+# 正例 1h：Shell.spawn（PH-13，同步 MVP，ABI 面不变）
+printf 'Shell.print(Shell.spawn("echo hi").stdout.trim())\n' >"$TMP/spawn.nexjs"
+out="$("$NEX" "$TMP/spawn.nexjs")" || fail "Shell.spawn echo 退出码非 0"
+[ "$out" = "hi" ] || fail "Shell.spawn echo 输出应为 hi，实际：$out"
+
+printf 'Shell.print(String(Shell.spawn("exit 3").code))\n' >"$TMP/spawn_code.nexjs"
+out="$("$NEX" "$TMP/spawn_code.nexjs")" || fail "Shell.spawn exit 退出码非 0"
+[ "$out" = "3" ] || fail "Shell.spawn exit 3 的 code 应为 3，实际：$out"
+
 # 正例 2：shebang 直跑（内核传 argv，不依赖安装到 PATH）
 printf '#!%s\nvar b=2; b+1\n' "$NEX" >"$TMP/shebang.nexjs"
 chmod +x "$TMP/shebang.nexjs"
