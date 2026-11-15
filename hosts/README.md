@@ -13,13 +13,15 @@
 | 项 | 口径 |
 | --- | --- |
 | 输入 | `nex <script>` / `nex -e '<code>'` / `nex -`（stdin）；按**程序模式**求值（多语句、`#!` 首行由引擎处理） |
-| 原生能力 | 只注册 `Shell.print`（走 `NexCoreConfig` 的 `native_call` / `native_names` 尾字段） |
+| 原生能力 | `Shell.print` 与 `Shell.spawn`（走 `NexCoreConfig` 的 `native_call` / `native_names` 尾字段；`spawn` 只在宿主内实现，不进 ABI） |
+| 中断与预算 | `interrupt_call` 接线到 SIGINT（求值期间可停，exit 130）；预算由 `NEX_TIMEOUT_MS` 显式开启（默认 0 不限，超时 exit 1） |
+| `Shell.spawn` | 同步执行 `/bin/sh -c <cmd>`，返回 `{code, stdout}`；非零退出用 `code` 表达，不抛异常；异步/流式未做（K-6） |
 | 进程快照 | `process.argv`（`["nex", <script 或 -e>, ...args]`）与 `process.env`（启动时 `environ` 快照），均 `Object.freeze`；脚本内改 env 不回写宿主（K-5） |
 | 输出 | 脚本完成值打到 stdout；`$error`（`code=E_JS_EXCEPTION`）打到 stderr；`null` 完成值不打 |
 | 退出码 | `0` 成功；`1` 脚本错误（`stat(LAST_ERROR)` 非 0）；`2` 用法或读文件失败；`130` 收到 SIGINT |
 | 产物 | `build/bin/nex`，**不安装**到系统目录、不作为发布物（裁定 §7.3） |
 
-SIGINT 只做「求值结束后按标记退出」：同步求值进行中没有中断入口，需要库层暴露引擎中断钩子（PH-12 卡 K-4）。
+SIGINT 在求值期间也生效（库轮询 `interrupt_call`），中断后 exit 130；预算用 `NEX_TIMEOUT_MS` 开启，超时 exit 1。
 
 构建与验收：
 
@@ -40,4 +42,4 @@ PATH="$PWD/build/bin:$PATH" ./script.nexjs
 printf '#!%s\nvar b=2; b+1\n' "$PWD/build/bin/nex" > /tmp/t.nexjs && chmod +x /tmp/t.nexjs && /tmp/t.nexjs
 ```
 
-范围：本阶段没有 `import`/`require`、`Shell.spawn`、子进程（阶段 3 起，见 PH-11/PH-12 卡）。
+范围：本阶段没有 `import`/`require`、异步 `Shell.spawn` 与流式 stdout（K-6），也不做进程组回收/PTY。

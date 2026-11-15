@@ -119,3 +119,37 @@ void *interrupt_user;
 | --- | --- | --- |
 | 仓库根 `build/` | 被封存，实跑在 `/tmp/nx13` | `rsync -a --exclude build --exclude .git <repo>/ /tmp/nx13/` |
 | 收口 tag / push | 本轮授权不做 | `git tag -a v0.13.0 -m "PH-13 <sha>" <sha> && git push origin v0.13.0` |
+
+---
+
+## 9. 收口证据表（2026-11-15，`/tmp/nx13` 副本实跑）
+
+| # | 判据 | 命令 | 原始输出摘要 | rc | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 预算能中断求值 | `tests/interrupt.c` 用例 A | `drain rc=0 delivered=1 last_error=9` / `payload={"code":"E_JS_EXCEPTION","message":"timeout: evaluation exceeded budget"}` | 0 | PASS |
+| E2 | 宿主回调能中断 | 同夹具用例 B（回调第 5 次返回 1） | `payload={"code":"E_JS_EXCEPTION","message":"InternalError: interrupted"}` / `polls=5` / `INTERRUPT OK` | 0 | PASS |
+| E3 | Ctrl-C 真能停 | `check-host.sh`：`while(true){}` + 100ms 后 `kill -INT` | 进程 1.5s 内退出，退出码 `130` | 0 | PASS |
+| E3b | 预算在宿主侧可判 | `NEX_TIMEOUT_MS=200 nex while(true){}` | stderr 含 `timeout`，退出码 `1` | 0 | PASS |
+| E4 | `Shell.spawn` 可用 | `Shell.spawn("echo hi").stdout.trim()` / `String(…"exit 3".code)` | `hi` / `3` | 0 | PASS |
+| E5 | ABI 面未破 | ⑩ 与 `grep -c spawn abi/abi-layout.txt` | `⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）` / `0` | 0 | PASS |
+| E6 | 全量门禁 | 两档 `check.sh` + `check-host.sh` | `ALL CHECKS PASSED (quickjs)` / `(null)`，SKIP=3；`HOST OK` | 0 | PASS |
+
+**红证记录**
+
+| task | baseline | 命令 | 原始输出（节选） | rc |
+| --- | --- | --- | --- | --- |
+| PH13-T1 | `19053db` | 用 PH-12 的 ABI 头编译 `tests/interrupt.c` | `unknown type name 'NexCoreInterruptFn'` / `no member named 'interrupt_call'` | 1 |
+| PH13-T2 | `11c422c` | `bash tools/check-host.sh`（接线前） | `check-host: FAIL 求值期间 SIGINT 未中断（进程 1.5s 后仍存活）` | 1 |
+| PH13-T3 | `75f013a` | `bash tools/check-host.sh`（注册前） | `TypeError: not a function` / `FAIL Shell.spawn echo 退出码非 0` | 1 |
+
+**实现期修正（如实记录）**：预算最初用 `clock()`（CPU 时间），实测不触发；改为 `clock_gettime(CLOCK_MONOTONIC)` 后通过。init 期 bootstrap 也受预算约束，故 `eval_start` 在 `init` 里初始化，否则 bootstrap 会被立即中断（`create rc=9`）。
+
+---
+
+## 10. 遗留项
+
+| # | 项 | 状态 |
+| --- | --- | --- |
+| K-4 | 求值期间 SIGINT | **关闭**：库层中断钩子 + 宿主接线，E3 可判定 |
+| K-6 | 异步/流式 `Shell.spawn`（stdout 流式、事件回投）需新 ABI | 挂账；需另开 ABI 评审，本 phase 只定「不进 ABI」这一面 |
+| K-7 | 中断/超时的 `LAST_ERROR` 仍是 `NX_E_INTERNAL` | 受 K-3 约束；宿主用 `$error.message` 区分 |
