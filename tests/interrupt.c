@@ -2,8 +2,11 @@
  * tests/interrupt.c — PH-13 E1/E2：求值预算与宿主中断钩子。
  *
  * 只用公开 ABI。两条断言：
- *   A) default_timeout_ms 到期必须中止 `while(true){}`，$error 文案含 timeout；
- *   B) interrupt_call 返回非 0 必须中止求值，$error 文案含 interrupted。
+ *   A) default_timeout_ms 到期必须中止 `while(true){}`，$error 的 code 为
+ *      E_TIMEOUT，文案含 timeout；
+ *   B) interrupt_call 返回非 0 必须中止求值，$error 的 code 为 E_INTERRUPTED，
+ *      文案含 interrupted。
+ * 两条都同时断言 NX_STAT_LAST_ERROR == NX_E_INTERNAL（K-7 不动 ABI 错误面）。
  * 两条都在 alarm(5) 兜底下跑：没中断成功就挂死，rc=142。
  */
 #include <stdio.h>
@@ -100,6 +103,15 @@ int main(void)
         printf("FAIL: budget payload has no timeout marker\n");
         return 3;
     }
+    if (strstr(sink.last, "\"code\":\"E_TIMEOUT\"") == 0) {
+        printf("FAIL: budget payload code is not E_TIMEOUT\n");
+        return 11;
+    }
+    if (last_error != NX_E_INTERNAL) {
+        printf("FAIL: budget last_error=%d, want %d\n", (int)last_error,
+               (int)NX_E_INTERNAL);
+        return 12;
+    }
     if (nexcore_shutdown(h) != NX_OK) return 4;
     if (nexcore_free(h) != NX_OK) return 5;
 
@@ -114,6 +126,15 @@ int main(void)
     if (strstr(sink.last, "interrupted") == 0) {
         printf("FAIL: interrupt payload has no interrupted marker\n");
         return 8;
+    }
+    if (strstr(sink.last, "\"code\":\"E_INTERRUPTED\"") == 0) {
+        printf("FAIL: interrupt payload code is not E_INTERRUPTED\n");
+        return 13;
+    }
+    if (last_error != NX_E_INTERNAL) {
+        printf("FAIL: interrupt last_error=%d, want %d\n", (int)last_error,
+               (int)NX_E_INTERNAL);
+        return 14;
     }
     alarm(0);
     printf("polls=%d\n", (int)g_polls);
