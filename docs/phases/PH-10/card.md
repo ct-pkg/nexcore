@@ -205,3 +205,11 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | G-4 | E6 与 E7 成立：`hosts/` 已被边界门禁覆盖且目录存在 | 注入违规 → ⑤c rc=1；`find hosts -name '*.ct'` 为空 |
 
 **必须写进 PH-11 卡的一句事实**：PH-11 **不是**「对 `src/` 零修改」。程序模式求值（去掉 `eval` 的括号包裹）与异常文案透出都必须在 `src/js_backend/` 里做，所以 PH-11 有两项**库层任务**（移动端同样受益），另加宿主任务。裁定文档 §6.2 已按此重排，提案原文的「阶段 1 对 src 零修改」不成立（见修订清单第 12 条）。
+
+---
+
+## 11. 红证记录（逐任务追加；`baseline` 必须是该任务 `test` 提交的父提交）
+
+| task | baseline | 命令 | 原始输出（节选） | rc | 时点 |
+| --- | --- | --- | --- | --- | --- |
+| PH10-T1 | `ced05d4` | `cc -std=c99 -Wall -Wextra -Werror -I build/abi tests/pump_microtask.c build/bin/libnexcore.dylib -o /tmp/pm_base && /tmp/pm_base` | `A: send+drain rc=0 hits=0` / `FAIL: microtasks not pumped (expect hits=1)` | 3 | 2026-11-15 |
