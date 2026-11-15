@@ -13,6 +13,8 @@ CT="${CT:-ct}"
 CC="${CC:-cc}"
 QJS="$HERE/third_party/quickjs"
 QJS_VERSION="${QJS_VERSION:-2025-09-13}"
+# JS 后端档位（D-21）：默认 quickjs，保留既有行为；NEXCORE_JS=null 时跳过引擎拉取与桥接探针。
+JS_BACKEND="${NEXCORE_JS:-quickjs}"
 
 log()  { printf '\n== %s ==\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -24,7 +26,7 @@ command -v "$CC" >/dev/null 2>&1 || fail "C compiler not found (set CC=...)"
 mkdir -p "$OUT"
 
 # ---------------------------------------------------------------- QuickJS
-if [ ! -f "$QJS/libquickjs.a" ]; then
+if [ "$JS_BACKEND" = "quickjs" ] && [ ! -f "$QJS/libquickjs.a" ]; then
     log "fetch + build QuickJS $QJS_VERSION"
     if [ ! -d "$QJS" ]; then
         tmp="$(mktemp -d)"
@@ -39,6 +41,7 @@ if [ ! -f "$QJS/libquickjs.a" ]; then
 fi
 
 # ------------------------------------------------- 1. 同步 / 异步 / 错误
+if [ "$JS_BACKEND" = "quickjs" ]; then
 log "1. bridge.ct: sync + async + errors"
 "$CT" compile "$HERE/src/bridge.ct" -o "$OUT/bridge.c"
 "$CC" -Wall -Wextra -Wno-unused-parameter -I "$QJS" \
@@ -53,6 +56,9 @@ grep -q 'async reject caught: worker rejected the job' "$OUT/bridge.run.txt" || 
 grep -q 'exception from throw: Error: js boom' "$OUT/bridge.run.txt" || fail "JS throw path"
 grep -q 'clean shutdown'                 "$OUT/bridge.run.txt" || fail "clean shutdown"
 pass "sync / async / all three error paths"
+else
+log "1. bridge.ct: SKIP (NEXCORE_JS=null，桥接探针属 P2 资产，不计通过)"
+fi
 
 # ------------------------------------------------------- 2. C ABI 导出
 log "2. abi.h.ct: exported C ABI (C + Swift)"

@@ -1,0 +1,20 @@
+/* GENERATED FROM src/units.json -- DO NOT EDIT. */
+/* generator: nexcore-gen 0.1.0 */
+
+#include "js_backend.h"
+
+namespace js_backend;
+
+pub trait Backend {
+    void * init(const char * bootstrap_js, int32_t bootstrap_len);
+    int32_t eval(void * h, const char * src, int32_t len, char ** out, int32_t * out_len);
+    int32_t shutdown(void * h);
+    int32_t turns(void);
+}
+
+map trait Backend for namespace js_backend {
+    init(bootstrap_js, bootstrap_len) -> js_backend_init(bootstrap_js, bootstrap_len);
+    eval(h, src, len, out, out_len) -> js_backend_eval(h, src, len, out, out_len);
+    shutdown(h) -> js_backend_shutdown(h);
+    turns() -> js_backend_turns();
+}

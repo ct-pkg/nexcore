@@ -1,0 +1,54 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+import js_backend;
+
+namespace js_backend;
+
+/*
+ * P1 的空后端：不链接任何 JS 引擎，依赖只有 libc。
+ *
+ * 语义约定：
+ *   - init 返回非空句柄，使 nexcore_create 不因「没有引擎」而失败；
+ *   - eval 恒返回 -1（未求值），不写 *out / *out_len；
+ *   - shutdown 释放句柄，可重复调用（h == 0 时直接返回 0）。
+ */
+#define NXJB_ERR -1
+#define NXJB_OK 0
+
+struct BackendState {
+    int32_t turns;
+}
+
+void *init(const char *bootstrap_js, int32_t bootstrap_len)
+{
+    struct BackendState *st;
+
+    (void)bootstrap_js;
+    (void)bootstrap_len;
+    st = malloc(sizeof(struct BackendState));
+    if (st == 0) return 0;
+    st->turns = 0;
+    return st;
+}
+
+int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len)
+{
+    (void)h;
+    (void)src;
+    (void)len;
+    if (out != 0) *out = 0;
+    if (out_len != 0) *out_len = 0;
+    return NXJB_ERR;
+}
+
+int32_t shutdown(void *h)
+{
+    if (h != 0) free(h);
+    return NXJB_OK;
+}
+
+int32_t turns(void)
+{
+    return 0;
+}

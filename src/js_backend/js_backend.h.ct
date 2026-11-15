@@ -1,0 +1,20 @@
+#include <stdint.h>
+
+namespace js_backend;
+
+/*
+ * JS 后端接口（P1 只有空实现；P2 换成 QuickJS 实现，调用点不变）。
+ *
+ * 线程约定：句柄只在调用方线程使用（P1 没有 worker 线程），本单元内部不引入锁。
+ */
+pub void *init(const char *bootstrap_js, int32_t bootstrap_len);
+
+/*
+ * 把 src 当作 JS 表达式求值，结果以 malloc 缓冲返回，调用方负责 free。
+ * 空实现下恒返回 -1，且不写 *out / *out_len。
+ */
+pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len);
+
+pub int32_t shutdown(void *h);
+
+pub int32_t turns(void);

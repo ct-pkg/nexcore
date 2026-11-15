@@ -407,4 +407,6 @@
 
 **理由**：主张席必须改动冻结判据才能成立；反证席的改动可枚举且已实测——空实现下 ①②③④⑤ 全过，红点只在测试链接行；另实测确认 CT 的 `namespace` 必须等于目录名、⑤a 要求自 import，所以「同目录换文件」的开关式方案不成立，必须新增正式注册的接口单元。
 
-**后果**：`src/NexCore.ct` 5 个调用点改名；新增 `src/js_backend/`（接口 + 空实现 + 生成物映射）；`units.json` 与 `tools/nexcore_gen.py` 需支持新单元；⑧⑨/smoke 三条 JS 语义检查移出 P1 绿线，改由 `quickjs` 档在 P2 承担。完整执行清单与判据见 `docs/reviews/nexcore-p1-quickjs-ruling.md`。
+**后果**：`src/NexCore.ct` 5 个调用点改名；新增 `src/js_backend/`（接口 + 空实现 + 生成物映射）；`units.json` 移除 `js_host` 条目并删除其生成映射；⑧⑨/smoke 三条 JS 语义检查移出 P1 绿线，改由 P2 承担。完整执行清单、判据与实施记录见 `docs/reviews/nexcore-p1-quickjs-ruling.md`。
+
+**实施状态（2026-11-15）**：8 步已落地。`bash tools/check.sh` rc=0（末行带 `NEXCORE_JS=null`），⑧⑨/smoke 记 SKIP 不计通过；`NEXCORE_JS=quickjs` 档因「同接口命名空间无法在构建期指向两套实现」尚未接线，当前 rc=2 明确拒绝，桥接能力由 `experiments/build.sh` 覆盖。

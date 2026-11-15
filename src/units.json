@@ -7,9 +7,9 @@
       "methods": ["open", "push", "pop", "depth", "close"]
     },
     {
-      "namespace": "js_host",
-      "trait": "Host",
-      "source": "js_host/js_host.h.ct",
+      "namespace": "js_backend",
+      "trait": "Backend",
+      "source": "js_backend/js_backend.h.ct",
       "methods": ["init", "eval", "shutdown", "turns"]
     }
   ]

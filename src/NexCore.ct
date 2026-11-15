@@ -4,13 +4,13 @@
 
 import NexCore;
 import queue::queue_map;
-import js_host::js_host_map;
+import js_backend::js_backend_map;
 
 /*
  * 根实现单元：只做 ABI 入口与构建入口，不承担跨单元转发。
- * 跨单元调用一律经映射单元：queue::Ring.* / js_host::Host.*。
+ * 跨单元调用一律经映射单元：queue::Ring.* / js_backend::Backend.*。
  *
- * S1–S5 阶段：消息经 queue 出队 → js_host 用 QuickJS 求值 → outbox →
+ * S1–S5 阶段：消息经 queue 出队 → js_backend 求值 → outbox →
  * drain 逐条回调 sink。没有 worker 线程，drain 在调用线程同步执行；
  * 跨线程与关闭超时预算（NX_E_CLOSE_TIMEOUT）留到 S6。
  */
@@ -70,8 +70,8 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         return NX_E_INTERNAL;
     }
 
-    /* bootstrap_js 在这里第一次被真正解引用：交给 QuickJS 全局求值。 */
-    js = js_host::Host.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len);
+    /* bootstrap_js 在这里第一次被真正解引用：交给 JS 后端（P1 为空实现）。 */
+    js = js_backend::Backend.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len);
     if (js == 0) {
         queue::Ring.close(q);
         queue::Ring.close(ob);
@@ -148,7 +148,7 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
     while (rc == 0) {
         resp = 0;
         resp_len = 0;
-        if (js_host::Host.eval(impl->js, msg, len, &resp, &resp_len) == 0) {
+        if (js_backend::Backend.eval(impl->js, msg, len, &resp, &resp_len) == 0) {
             if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
                 impl->last_error = NX_E_BACKPRESSURE;
             }
@@ -223,7 +223,7 @@ int32_t nexcore_shutdown(NexCoreHandle h)
     pump_inbox(impl);
     deliver_outbox(impl, 0);
     if (impl->js != 0) {
-        js_host::Host.shutdown(impl->js);
+        js_backend::Backend.shutdown(impl->js);
         impl->js = 0;
     }
     /*
@@ -243,7 +243,7 @@ int32_t nexcore_free(NexCoreHandle h)
     if (impl->state != NEXCORE_STATE_SHUT) return NX_E_BUSY;
     /* 兜底：shutdown 未跑到的 JS 句柄也要释放，避免泄漏。 */
     if (impl->js != 0) {
-        js_host::Host.shutdown(impl->js);
+        js_backend::Backend.shutdown(impl->js);
         impl->js = 0;
     }
     if (impl->outbox != 0) {

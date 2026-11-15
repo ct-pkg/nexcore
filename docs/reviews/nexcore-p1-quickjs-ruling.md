@@ -60,12 +60,12 @@
 | --- | --- | --- | --- |
 | 1 | `src/js_backend/js_backend.h.ct`（新） | `pub` 声明 4 个方法，语义与现 `js_host.h.ct` 相同 | `ct build --emit-c` 通过；④ recipe 校验通过 |
 | 2 | `src/js_backend/js_backend.ct`（新） | 空实现：`init` 返回堆句柄、`eval` 返回 `-1` 且不写 `*out`、`shutdown` free、`turns` 返回 0 | ⑥⑦ 的语义断言不依赖它；本条已在 §3 第 1 项以等价形态实测 |
-| 3 | `src/units.json` | 新增 `js_backend` 单元条目（4 方法） | ⓪ generator drift 通过；⑤b 通过 |
-| 4 | `src/js_host/js_backend_map.m.ct`（新，生成物） | 由 `tools/nexcore_gen.py` 生成，映射 `js_backend::Backend.*` → `js_backend_*` | 生成物与 `--check` 一致 |
+| 3 | `src/units.json` | 移除 `js_host` 条目、新增 `js_backend` 条目；同时删掉 `src/js_host/js_host_map.m.ct`（不删则 ④ 因 `js_host_init` 不在本次生成的导出原型里而红） | ⓪ generator drift 通过；⑤b 通过；④ 通过 |
+| 4 | `src/js_backend/js_backend_map.m.ct`（新，生成物） | 由 `tools/nexcore_gen.py` 生成，映射 `js_backend::Backend.*` → `js_backend_*` | 生成物与 `--check` 一致 |
 | 5 | `src/NexCore.ct` | `import js_host::js_host_map` → `import js_backend::js_backend_map`；5 个调用点改名 | ②a/②b/②c 通过；`nexcore_*` 7 个 T 符号不变 |
-| 6 | `tools/check.sh` | `IMPL_UNITS` 的 `js_host/js_host` → `js_backend/js_backend`；新增 `NEXCORE_JS=null\|quickjs`（默认 `null`）；`null` 档跳过 ⑧⑨ 与 smoke 的 JS 断言，`quickjs` 档保留 | `NEXCORE_JS=null bash tools/check.sh` 全绿；`NEXCORE_JS=quickjs` 在装了引擎时仍全绿 |
-| 7 | `experiments/build.sh` | QuickJS 段落加守卫：`NEXCORE_JS=null` 时跳过 bridge 探针并打印 SKIP | 两档都能 `rc=0` |
-| 8 | `src/js_host/*` | **保留不动**，作为 P2 的 QuickJS 后端实现（将来移入 `src/js_backend_quickjs/` 并按 #3 注册） | P2 才动；P1 不删，避免丢能力 |
+| 6 | `tools/check.sh` | `IMPL_UNITS` 改 `js_backend/js_backend`；默认 `NEXCORE_JS=null`，⑧⑨/smoke 记 SKIP；`quickjs` 档暂未接线，直接退出码 2（见 §7） | `bash tools/check.sh` 全绿且末行带档位；`NEXCORE_JS=quickjs` rc=2 并打印原因 |
+| 7 | `experiments/build.sh` | 新增 `JS_BACKEND="${NEXCORE_JS:-quickjs}"`；`null` 档跳过引擎拉取与 bridge 探针（打印 SKIP） | 两档都 `rc=0`：null 档 4 PASS + 1 SKIP；quickjs 档 5 项全 PASS |
+| 8 | `src/js_host/*` | **保留不动**（只留 `js_host.ct` / `js_host.h.ct`，不再进构建面），作为 P2 的 QuickJS 实现，接线时按本表重新注册 | P2 才动；P1 不删，避免丢能力 |
 
 **P1 出口的证明方式**：`NEXCORE_JS=null bash tools/check.sh` 全绿 + `bash tools/check.sh g0` 全绿 + `otool -L` 产出的 `libnexcore` 只含 libc/pthread。第三条未实测（当前产物是目标文件，不是 dylib），标 `[未实测]`。
 
@@ -85,6 +85,23 @@
 ## 6. 明确不做的事
 
 - 不改 `docs/roadmap.md` 的 P1 退出判据（冻结），只按它执行。
-- 不删 `src/js_host/`、不删 `tests/`、不删 `experiments/` 的 QuickJS 探针。
+- 不删 `src/js_host/`、不删 `tests/`、不删 `experiments/` 的 QuickJS 探针，也不删 `experiments/third_party/`。
 - 不动 `.ai-engineering`。
 - 不在本文改 `docs/acceptance.md` 的 ACC 条目；依赖 JS 线程的三条（ACC-C-01/05/06）已由 `docs/roadmap.md:53` 写明在 P2 关闭，无需改写。
+
+---
+
+## 7. 实施记录（2026-11-15，8 步已落地）
+
+| 实测项 | 命令 | 结果 |
+| --- | --- | --- |
+| P1 档全量 | `bash tools/check.sh` | rc=0，末行 `ALL CHECKS PASSED (NEXCORE_JS=null)`；① ②a ②b ②c ③ ④ ⑤a ⑤b ⑥ ⑦ 全部真跑 |
+| JS 语义三条 | 同上 | ⑧⑨/smoke 打印 `SKIP (… 不计通过)`，**没有计入绿线** |
+| P2 档 | `NEXCORE_JS=quickjs bash tools/check.sh` | rc=2，打印「尚未接线」及原因，不装绿 |
+| 地基 null 档 | `NEXCORE_JS=null bash experiments/build.sh` | rc=0；第 1 节 SKIP，②③④⑤ 四项 PASS |
+| 地基 quickjs 档 | `bash experiments/build.sh` | rc=0；5 项全 PASS（含 bridge 的 7 条断言） |
+| 规约门禁 | `bash tools/check.sh g0` | rc=0，`ok g0 (block 1.9.0/b8651332, …)` |
+
+**与原计划的偏离（一处）**：原计划让 `quickjs` 档直接跑 ⑧⑨。实施中发现 CT 的两条硬约束——`namespace` 必须等于目录名、`units.json` 与 `*_map.m.ct` 一一对应——使得「同一接口命名空间 `js_backend` 在 quickjs 档指向 `js_host_*` 实现」无法靠构建参数完成，必须先做一层显式映射/注册，属 P2 的接线工作。因此 `quickjs` 档改为**明确拒绝（rc=2）**，而不是让它带着空后端跑出假红或假绿。桥接能力在 P2 接线完成前由 `experiments/build.sh` 覆盖（默认档仍跑满 5 项）。
+
+`experiments/third_party/` 与 `src/js_host/` 源码均保留，P2 接线时不需要重新拉取或重写实现。
