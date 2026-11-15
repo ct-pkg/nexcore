@@ -17,7 +17,7 @@
 | Q-03 | `int64`/金额在 JSON 中的 wire 格式 | P1 | CLOSED | 已关闭 | 技术负责人 |
 | Q-04 | 大二进制通道 | P2 | DEFAULTED | P3 Schema 冻结前 | 技术负责人 |
 | Q-05 | 生成器语言与依赖策略 | P2 | DEFAULTED | P3 编码前 | 技术负责人 |
-| Q-06 | Swift/Android 集成形态与最低系统版本 | P1 | OPEN | **P1 出口前** | 平台负责人 |
+| Q-06 | Swift/Android 集成形态与最低系统版本 | P1 | DEFAULTED | P1 出口前（已于 2026-11-15 关闭） | 平台负责人 |
 | Q-07 | Android ABI 矩阵；Kotlin/Native 是否纳入 | P2 | DEFAULTED | P4 验收前 | 平台负责人 |
 | Q-08 | Linux/Windows 是否在 v1 范围内 | P3 | DEFAULTED | P4 范围评审 | 项目负责人 |
 | Q-09 | 事件投递保证的对外承诺 | P1 | DEFAULTED | P2 协议冻结前 | 技术负责人 |
@@ -134,6 +134,12 @@
 **临时默认**：Swift 用 SPM system library；iOS 15+/macOS 12+；Android minSdk 26、JNI 层独立 `.so`、Kotlin 协程封装。
 
 **风险**：Swift 6 严格并发会让 `NexCoreSink` 的 C 回调标注复杂化，需在 P4 前确认。
+
+**关闭依据（2026-11-15）**：按 DEFAULTED 关闭，取上面「临时默认」为 v1 口径。
+
+- **Swift 形态**已实测：`experiments/build.sh` 第 2 节用 `swiftc -import-objc-header build/abi/NexCore.h` 编译并运行，PASS（`PASS: C ABI exported; C and Swift hosts agree`）。
+- **Android 形态**取默认（minSdk 26、独立 JNI `.so`、AAR），但本机无 NDK，**判为不可验证**，已在 `docs/reviews/nexcore-p1-closeout.md` 登记；它不影响 Q-06 的「形态」结论，只影响 ACC-A-07 的验收时机。
+- **Swift 6 严格并发**不在 P1 范围内，保留原风险条目，时限仍是 P4 前。
 
 ---
 

@@ -11,7 +11,7 @@
 #     先冻结该文件、对齐需求，再并回一版，不做无记录的双向覆盖。
 #   * 新增检查项使用新编号，不复用旧编号；编号表见文件末尾注释。
 #
-# 检查项：0 / ①a ①b ①c / ②a ②b ②c / ③ / ④ / ⑤a ⑤b / ⑥ / ⑦ / ⑧ / ⑨ / smoke
+# 检查项：0 / ①a ①b ①c / ②a ②b ②c / ③ / ④ / ⑤a ⑤b ⑤c / ⑥ / ⑦ / ⑧ / ⑨ / smoke / ⑩
 #
 # 用法：
 #   bash tools/check.sh        全量检查（上面的检查项）
@@ -382,6 +382,9 @@ if bad:
 print(f"⑤b units.json parity: PASS ({checked} units)")
 PY
 
+echo "== ⑤c boundaries (tools/check-boundaries.sh) =="
+bash tools/check-boundaries.sh "$SRC" experiments/src
+
 echo "== 6. stat key contract =="
 "$CC" "${CFLAGS[@]}" \
   -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" \
@@ -399,6 +402,40 @@ echo "⑧ bootstrap_js executed: SKIP (NEXCORE_JS=null：空后端不求值，�
 echo "⑨ drain -> sink: SKIP (NEXCORE_JS=null：空后端不产出响应，不计通过)"
 echo "smoke: SKIP (NEXCORE_JS=null：端到端依赖 JS 求值，不计通过)"
 echo "   JS 语义检查（⑧⑨/smoke）已移出 P1 绿线（D-21，docs/reviews/nexcore-p1-quickjs-ruling.md）"
+
+echo "== 10. libnexcore 产物面（依赖 + 符号） =="
+# 只导出 ABI 的 7 个函数；内部单元符号一律隐藏（ACC-A-02 白名单）
+cat >"$BIN/exports.txt" <<'SYMS'
+_nexcore_create
+_nexcore_set_sink
+_nexcore_send
+_nexcore_drain
+_nexcore_shutdown
+_nexcore_stat
+_nexcore_free
+SYMS
+"$CC" "${CFLAGS[@]}" -dynamiclib \
+  -Wl,-exported_symbols_list,"$BIN/exports.txt" \
+  -o "$BIN/libnexcore.dylib" "$IMPL"/obj/*.o -lm -lpthread
+echo "otool -L:"
+otool -L "$BIN/libnexcore.dylib"
+if otool -L "$BIN/libnexcore.dylib" | grep -qi 'quickjs'; then
+  printf '⑩ FAIL: libnexcore 依赖里出现 QuickJS\n' >&2
+  exit 1
+fi
+syms=$(nm -gU "$BIN/libnexcore.dylib" | awk '$2 == "T" { print $3 }' | sort)
+echo "nm -gU T:"
+printf '%s\n' "$syms"
+count=$(printf '%s\n' "$syms" | grep -c . || true)
+if [ "$count" -ne 7 ]; then
+  printf '⑩ FAIL: libnexcore 导出 T 符号应为 7 个，实际 %s 个\n' "$count" >&2
+  exit 1
+fi
+if printf '%s\n' "$syms" | grep -v '^_nexcore_' >/dev/null; then
+  printf '⑩ FAIL: libnexcore 出现非 nexcore_* 的导出符号\n' >&2
+  exit 1
+fi
+echo "⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）"
 
 echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 
