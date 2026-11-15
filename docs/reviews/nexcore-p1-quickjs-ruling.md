@@ -102,6 +102,8 @@
 | 地基 quickjs 档 | `bash experiments/build.sh` | rc=0；5 项全 PASS（含 bridge 的 7 条断言） |
 | 规约门禁 | `bash tools/check.sh g0` | rc=0，`ok g0 (block 1.9.0/b8651332, …)` |
 
-**与原计划的偏离（一处）**：原计划让 `quickjs` 档直接跑 ⑧⑨。实施中发现 CT 的两条硬约束——`namespace` 必须等于目录名、`units.json` 与 `*_map.m.ct` 一一对应——使得「同一接口命名空间 `js_backend` 在 quickjs 档指向 `js_host_*` 实现」无法靠构建参数完成，必须先做一层显式映射/注册，属 P2 的接线工作。因此 `quickjs` 档改为**明确拒绝（rc=2）**，而不是让它带着空后端跑出假红或假绿。桥接能力在 P2 接线完成前由 `experiments/build.sh` 覆盖（默认档仍跑满 5 项）。
+**与原计划的偏离（一处）**：原计划让 `quickjs` 档直接跑 ⑧⑨。实施中发现 CT 的两条硬约束——`namespace` 必须等于目录名、实现单元的自 import 必须与文件名一致——使得「换目录放第二实现」当场失败（`ctc: namespace 'js_host_null' does not match the directory 'js_host'`）。因此 `quickjs` 档先**明确拒绝（rc=2）**，而不是带着空后端跑出假红或假绿。桥接能力在接线完成前由 `experiments/build.sh` 覆盖（默认档仍跑满 5 项）。
+
+**更正（2026-11-15，同一轮实测补测）**：上面那条约束只否掉了「跨目录」方案。补测显示**同目录、同命名空间**放第二个实现文件可行且已实测通过（`ct build` rc=0、`cc -Werror -fsyntax-only` rc=0、导出符号与 map 目标一致，且未注册的兄弟文件不会弄红 null 档）。所以 `quickjs` 档的接线成本比本节原先估计的低，具体工作项见 `docs/reviews/nexcore-p2-card-draft.md`。当前 `rc=2` 的拒绝行为作为 P2 完成前的安全默认保留。
 
 `experiments/third_party/` 与 `src/js_host/` 源码均保留，P2 接线时不需要重新拉取或重写实现。
