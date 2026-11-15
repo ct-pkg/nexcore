@@ -615,7 +615,46 @@ if command -v swiftc >/dev/null 2>&1; then
 else
   echo "⑭ Swift typecheck: UNVERIFIED（本机无 swiftc，不计通过）"
 fi
-echo "⑭ Kotlin compile: UNVERIFIED（本机无 kotlinc；按 P3 规划标不可验证，不进绿线）"
+# Kotlin 判据（2026-11-16 起为真编译，不再是硬编码 UNVERIFIED）：
+#   有 kotlinc：编译 schema/generated/kotlin/*.kt，必须 rc=0 且产出的 .class 非零；
+#     再把 tests/kotlin_syntax_negative.kt 编一遍，必须失败且输出含 "error:"——
+#     负例防「工具在、但什么都没检」时本项也变绿。
+#   无 kotlinc：记 UNVERIFIED 后继续，不让整条门禁因缺工具变红。理由：
+#     缺工具是本机环境缺口，不是仓库里的代码缺陷。若算红，同一提交在装了/没装 kotlinc
+#     的机器上会得到相反结论，还会掩盖真正的编译错误。口径与上面 Swift、下面 JS 分支一致：
+#     UNVERIFIED 不计 PASS，PASS 只在真编译通过的机器上出现，判据文本随行打印便于核对。
+if command -v kotlinc >/dev/null 2>&1; then
+  KT_VER="$(kotlinc -version 2>&1 | head -1)"
+  KT="$(mktemp -d "${TMPDIR:-/tmp}/nexcore-kt.XXXXXX")"
+  mkdir -p "$KT/out" "$KT/neg"
+  if ! kotlinc schema/generated/kotlin/*.kt -d "$KT/out" >"$KT/compile.log" 2>&1; then
+    echo "⑭ FAIL: Kotlin 编译失败（${KT_VER}）" >&2
+    cat "$KT/compile.log" >&2
+    rm -rf "$KT"
+    exit 1
+  fi
+  kt_classes="$(find "$KT/out" -name '*.class' | wc -l | tr -d ' ')"
+  if [ "$kt_classes" -eq 0 ]; then
+    echo "⑭ FAIL: Kotlin 编译零 .class（生成物没有产出可执行代码）" >&2
+    rm -rf "$KT"
+    exit 1
+  fi
+  if kotlinc tests/kotlin_syntax_negative.kt -d "$KT/neg" >"$KT/neg.log" 2>&1; then
+    echo "⑭ FAIL: Kotlin 负例本应编译失败（tests/kotlin_syntax_negative.kt 缺右括号）" >&2
+    rm -rf "$KT"
+    exit 1
+  fi
+  if ! grep -q 'error:' "$KT/neg.log"; then
+    echo "⑭ FAIL: Kotlin 负例失败原因不是编译错误（判据不成立）" >&2
+    cat "$KT/neg.log" >&2
+    rm -rf "$KT"
+    exit 1
+  fi
+  rm -rf "$KT"
+  echo "⑭ Kotlin compile: PASS（${KT_VER}；$kt_classes 个 .class；语法错负例被拒且报 error:）"
+else
+  echo "⑭ Kotlin compile: UNVERIFIED（本机无 kotlinc，不计通过；判据=生成物真编译 + 语法错负例被拒）"
+fi
 if [ "$JS_BACKEND" = "quickjs" ]; then
   "$CC" "${CFLAGS[@]}" -I "$SRC/js_backend" $QJS_INC \
     tests/js_module_load.c $QJS_LIB -lm -o "$BIN/js_module_load"
@@ -782,5 +821,7 @@ echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 #       src/NexCore.ct 的 NEXCORE_SCHEMA_HASH；错 hash 拒绝且同进程重试成功
 #   ⑭  P3 生成器：Schema -> 5 个产物无漂移、20 条负例全部真红（规则+行号）、
 #       生成 C 过 -Werror；registry 行为测试（dispatch -> provider，GEN-05/12）；
-#       GEN-16 跨单元取址编译期负例；Swift 用 swiftc 判，Kotlin/无引擎时的 JS 标 UNVERIFIED
+#       GEN-16 跨单元取址编译期负例；Swift 用 swiftc -typecheck 判；Kotlin 用 kotlinc 真编译
+#       （含 tests/kotlin_syntax_negative.kt 语法错负例）；无引擎时的 JS、无工具链时的
+#       Swift/Kotlin 标 UNVERIFIED（不计 PASS）
 # ---------------------------------------------------------------------------
