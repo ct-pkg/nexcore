@@ -103,3 +103,19 @@
 **过程中补的一处**：②a 现在先单独生成 `js_backend.h`（接口头），再生成实现单元。原因是 quickjs 档的实现文件只带自己的 `js_backend_quickjs.h.ct`，不会产出 `js_backend.h`，而 `NexCore.c` 里 `import js_backend::js_backend_map` 需要它。顺序必须先头后单元，否则第二次生成会把实现 `.c` 覆盖成空文件，链接时报 `_js_backend_init` 未定义。
 
 **未做**：卡里工作项 4（删除 `src/js_host/*`）按「稳定一轮后再删」保留，当前 `src/js_host/` 与 `js_backend_quickjs.ct` 两处代码并存，尚未漂移。
+
+---
+
+## 10. `src/js_host/*` 的删除条件（可核对）
+
+现状：`src/js_host/js_host.h.ct`、`js_host.ct` 已标 DEPRECATED，源码保留、未注册、不参与任何档位构建。
+
+删除必须**同时**满足以下三条，缺一条都不算：
+
+1. **跨提交证据**：`NEXCORE_JS=quickjs bash tools/check.sh` 在**不少于 2 个独立提交**上各留下一次 rc=0 记录（同一次提交重复跑不算）。
+2. **null 档不退化**：上述每个提交上，`bash tools/check.sh` 也都是 rc=0。
+3. **JS 语义无回退**：上述记录里 ⑧⑨/smoke 全是 `PASS`，没有一次失败、没有一次退回 `SKIP`。
+
+执行口径：满足后删除 `src/js_host/` 作为**单独提交**，提交信息里贴出满足条件的两个提交号与两次末行原文；删完立刻在两个档位各跑一次全量留证。
+
+不满足时的处置：保持 deprecated 状态，不新增逻辑、不复制改动——所有 JS 改动只落 `src/js_backend/js_backend_quickjs.ct`。

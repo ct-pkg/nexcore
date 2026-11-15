@@ -12,7 +12,7 @@
 
 | ID | 问题 | 优先级 | 状态 | 最晚决策点 | 决策人 |
 |---|---|---|---|---|---|
-| Q-01 | QuickJS 选 Bellard 还是 quickjs-ng，锁定哪个版本 | P1 | OPEN | P2 编码前 | 技术负责人 |
+| Q-01 | QuickJS 选 Bellard 还是 quickjs-ng，锁定哪个版本 | P1 | DEFAULTED | P2 编码前（已于 2026-11-15 由 D-21 定案） | 技术负责人 |
 | Q-02 | 是否允许 JS 热更新（影响 iOS 合规） | P1 | CLOSED | 已关闭 | 产品 + 法务 |
 | Q-03 | `int64`/金额在 JSON 中的 wire 格式 | P1 | CLOSED | 已关闭 | 技术负责人 |
 | Q-04 | 大二进制通道 | P2 | DEFAULTED | P3 Schema 冻结前 | 技术负责人 |
@@ -48,6 +48,8 @@
 | C. 自维护 fork | 完全可控 | 长期维护成本高 |
 
 **临时默认**：A，固定 tag + 提交 hash；所有 API 差异只出现在 `src/js_host/js_host_map.shim.c`。
+
+**关闭依据（2026-11-15，D-21）**：取方案 A，版本锁 `2025-09-13`。依据是只有这一组合在本机实测通过（`NEXCORE_JS=quickjs bash tools/check.sh` 全绿，⑧⑨/smoke 真跑 PASS）；换 fork 时重开本问题，迁移面限定在 `src/js_backend/js_backend_quickjs.ct` 一个文件。
 
 **决策依据**：P2 第一周做双 fork 的最小嵌入对比（编译、`JS_ExecutePendingJob`、内存限制、interrupt handler、Android NDK 构建），以实测结果定。
 

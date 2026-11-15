@@ -3,6 +3,13 @@
 #include <string.h>
 #include "quickjs.h"
 
+/*
+ * DEPRECATED（2026-11-15）：已被 src/js_backend/js_backend_quickjs.ct 取代。
+ * - 不要在本单元再加任何逻辑；改动请落到 js_backend/js_backend_quickjs.ct。
+ * - 未注册进 units.json，不参与 null/quickjs 任一档构建，仅作回滚参照。
+ * - 删除前置条件见 docs/reviews/nexcore-p2-card-draft.md §10。
+ */
+
 import js_host;
 
 namespace js_host;

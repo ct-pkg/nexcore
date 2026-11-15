@@ -1,5 +1,11 @@
 #include <stdint.h>
 
+/*
+ * DEPRECATED（2026-11-15）：已被 src/js_backend/js_backend_quickjs.ct 取代。
+ * - 不要在本单元再加任何逻辑；P2 起 JS 后端只维护 js_backend_quickjs。
+ * - 未注册进 units.json，不参与 null/quickjs 任一档构建，仅作回滚参照。
+ * - 删除前置条件见 docs/reviews/nexcore-p2-card-draft.md §10。
+ */
 namespace js_host;
 
 /*
