@@ -84,6 +84,12 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
     *out = 0;
     *out_len = 0;
 
+    /*
+     * 进入下一条消息前先把 job 队列清空（D-05：job 清空前不处理 inbox）。
+     * bootstrap 与上一条消息排下的回调都在这里生效，否则新消息会读到旧状态。
+     */
+    (void)pump(h, 0);
+
     /* 包一层括号：`{"id":1}` 作为脚本会被当成块语句，作为表达式才是对象字面量。 */
     wrapped = malloc((size_t)len + 3);
     if (wrapped == 0) return NXJB_ERR;
@@ -128,6 +134,8 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
     *out_len = (int32_t)slen;
     JS_FreeCString(st->ctx, s);
     JS_FreeValue(st->ctx, json);
+    /* 求值后泵到空：Promise 回调的副作用必须在下一条消息之前生效（D-05 顺序）。 */
+    (void)pump(h, 0);
     return NXJB_OK;
 }
 
@@ -141,4 +149,36 @@ int32_t shutdown(void *h)
 int32_t turns(void)
 {
     return 1;
+}
+
+/*
+ * 泵 job 队列。JS_ExecutePendingJob 返回 >0 表示跑了一个 job，0 表示空，<0 表示异常。
+ * 异常必须在这里清掉：漏掉会让下一次 eval 读到脏状态（与 init 里的处理同源）。
+ */
+int32_t pump(void *h, int32_t max_jobs)
+{
+    struct BackendState *st;
+    JSContext *ctx;
+    JSValue ex;
+    int32_t rc;
+    int32_t ran;
+    int32_t limit;
+
+    if (h == 0) return NXJB_ERR;
+    st = h;
+    limit = max_jobs;
+    if (limit <= 0) limit = 0x7fffffff;
+    ran = 0;
+    ctx = 0;
+    while (ran < limit) {
+        rc = JS_ExecutePendingJob(st->rt, &ctx);
+        if (rc < 0) {
+            ex = JS_GetException(st->ctx);
+            JS_FreeValue(st->ctx, ex);
+            return NXJB_ERR;
+        }
+        if (rc == 0) break;
+        ran = ran + 1;
+    }
+    return ran;
 }

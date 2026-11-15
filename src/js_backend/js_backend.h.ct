@@ -18,3 +18,12 @@ pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out
 pub int32_t shutdown(void *h);
 
 pub int32_t turns(void);
+
+/*
+ * 把 runtime 的 job 队列泵到空，或泵满 max_jobs 个（max_jobs <= 0 视为「泵到空」）。
+ * 返回实际执行 job 数（>= 0）；出错返回 -1。job 内的异常不得穿透到调用方。
+ *
+ * 空实现恒返回 0。实现单元（quickjs）在 eval 成功后必须调用 pump(h, 0)，
+ * 宿主因此只需 send + drain 就能观察到 Promise 回调，不必新增导出符号。
+ */
+pub int32_t pump(void *h, int32_t max_jobs);

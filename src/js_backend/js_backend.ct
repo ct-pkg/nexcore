@@ -52,3 +52,11 @@ int32_t turns(void)
 {
     return 0;
 }
+
+/* 空实现没有引擎，也就没有 job 队列。 */
+int32_t pump(void *h, int32_t max_jobs)
+{
+    (void)h;
+    (void)max_jobs;
+    return 0;
+}

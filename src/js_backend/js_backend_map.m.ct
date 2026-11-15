@@ -10,6 +10,7 @@ pub trait Backend {
     int32_t eval(void * h, const char * src, int32_t len, char ** out, int32_t * out_len);
     int32_t shutdown(void * h);
     int32_t turns(void);
+    int32_t pump(void * h, int32_t max_jobs);
 }
 
 map trait Backend for namespace js_backend {
@@ -17,4 +18,5 @@ map trait Backend for namespace js_backend {
     eval(h, src, len, out, out_len) -> js_backend_eval(h, src, len, out, out_len);
     shutdown(h) -> js_backend_shutdown(h);
     turns() -> js_backend_turns();
+    pump(h, max_jobs) -> js_backend_pump(h, max_jobs);
 }

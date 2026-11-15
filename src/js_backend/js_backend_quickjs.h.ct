@@ -29,3 +29,6 @@ pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out
 pub int32_t shutdown(void *h);
 
 pub int32_t turns(void);
+
+/* 泵 job 队列：max_jobs <= 0 泵到空；返回执行数（>=0），出错 -1。 */
+pub int32_t pump(void *h, int32_t max_jobs);
