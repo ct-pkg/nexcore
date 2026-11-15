@@ -45,7 +45,7 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
 
 int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
              char **out, int32_t *out_len,
-             char **err, int32_t *err_len)
+             char **err, int32_t *err_len, int32_t *err_kind)
 {
     (void)h;
     (void)src;
@@ -55,6 +55,8 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
     if (out_len != 0) *out_len = 0;
     if (err != 0) *err = 0;
     if (err_len != 0) *err_len = 0;
+    /* 没有引擎可中断：原因恒为「普通求值失败」。 */
+    if (err_kind != 0) *err_kind = 0;
     return NXJB_ERR;
 }
 

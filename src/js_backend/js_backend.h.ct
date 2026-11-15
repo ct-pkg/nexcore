@@ -32,11 +32,13 @@ pub void *init(const char *bootstrap_js, int32_t bootstrap_len,
  * 把 src 当作 JS 求值，结果以 malloc 缓冲返回，调用方负责 free。
  * mode = 0 为表达式（现行行为），1 为程序模式（多语句、#!）。
  * 失败时返回 -1；若 err/err_len 非空，额外给出引擎文案（malloc，调用方 free）。
- * 空实现下恒返回 -1，且不写 *out / *out_len。
+ * err_kind 非空时写中断原因（PH-14 K-7）：0 = 普通求值失败，1 = 预算超时，
+ * 2 = 宿主 interrupt_call 中断。调用方按它选协议错误码，不要解析 err 文案。
+ * 空实现下恒返回 -1，且不写 *out / *out_len，*err_kind 写 0。
  */
 pub int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
                  char **out, int32_t *out_len,
-                 char **err, int32_t *err_len);
+                 char **err, int32_t *err_len, int32_t *err_kind);
 
 pub int32_t shutdown(void *h);
 

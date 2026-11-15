@@ -221,22 +221,31 @@ int32_t nexcore_send(NexCoreHandle h, const char *json, size_t len)
  * 其余失败仍只置 LAST_ERROR——不凭空造消息。JSON 转义在本文件内做，
  * 避免宿主自己再拼一次（协议里 $error 是既有形状）。
  */
-static void push_script_error(struct NexCoreHandleImpl *impl, const char *msg, int32_t len)
+static void push_script_error(struct NexCoreHandleImpl *impl, const char *msg, int32_t len,
+                              const char *code)
 {
-    static const char PREFIX[] = "{\"code\":\"E_JS_EXCEPTION\",\"message\":\"";
+    static const char HEAD[] = "{\"code\":\"";
+    static const char MID[] = "\",\"message\":\"";
     static const char SUFFIX[] = "\"}";
+    int32_t code_len;
     char *buf;
     int32_t cap;
     int32_t w;
     int32_t i;
 
     if (msg == 0 || len <= 0) return;
+    code_len = (int32_t)strlen(code);
     /* 最坏情况每个字符转义成 \u00XX（6 字节）。 */
-    cap = len * 6 + (int32_t)(sizeof(PREFIX) - 1) + (int32_t)(sizeof(SUFFIX) - 1) + 8;
+    cap = len * 6 + (int32_t)(sizeof(HEAD) - 1) + code_len
+          + (int32_t)(sizeof(MID) - 1) + (int32_t)(sizeof(SUFFIX) - 1) + 8;
     buf = malloc((size_t)cap);
     if (buf == 0) return;
-    memcpy(buf, PREFIX, sizeof(PREFIX) - 1);
-    w = (int32_t)(sizeof(PREFIX) - 1);
+    memcpy(buf, HEAD, sizeof(HEAD) - 1);
+    w = (int32_t)(sizeof(HEAD) - 1);
+    memcpy(buf + w, code, (size_t)code_len);
+    w = w + code_len;
+    memcpy(buf + w, MID, sizeof(MID) - 1);
+    w = w + (int32_t)(sizeof(MID) - 1);
     for (i = 0; i < len; i++) {
         unsigned char c;
 
@@ -286,6 +295,8 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
     int32_t resp_len;
     char *err;
     int32_t err_len;
+    int32_t err_kind;
+    const char *code;
     int32_t rc;
 
     msg = 0;
@@ -296,15 +307,20 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
         resp_len = 0;
         err = 0;
         err_len = 0;
+        err_kind = 0;
         rc = js_backend::Backend.eval(impl->js, msg, len, impl->eval_mode,
-                                      &resp, &resp_len, &err, &err_len);
+                                      &resp, &resp_len, &err, &err_len, &err_kind);
         if (rc == 0) {
             if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
                 impl->last_error = NX_E_BACKPRESSURE;
             }
         } else {
             impl->last_error = NX_E_INTERNAL;
-            push_script_error(impl, err, err_len);
+            /* K-7：按后端给出的中断原因选协议码；文案只作日志/展示。 */
+            code = "E_JS_EXCEPTION";
+            if (err_kind == 1) code = "E_TIMEOUT";
+            else if (err_kind == 2) code = "E_INTERRUPTED";
+            push_script_error(impl, err, err_len, code);
         }
         free(err);
         free(resp);

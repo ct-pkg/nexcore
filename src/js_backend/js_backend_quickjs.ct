@@ -367,7 +367,7 @@ static void set_error_out(char **err, int32_t *err_len, JSContext *ctx, JSValue 
 
 int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
              char **out, int32_t *out_len,
-             char **err, int32_t *err_len){
+             char **err, int32_t *err_len, int32_t *err_kind){
     struct BackendState *st;
     char *wrapped;
     char *copy;
@@ -382,6 +382,7 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
 
     if (err != 0) *err = 0;
     if (err_len != 0) *err_len = 0;
+    if (err_kind != 0) *err_kind = 0;
     if (h == 0 || src == 0 || len < 0 || out == 0 || out_len == 0) return NXJB_ERR;
     st = h;
     *out = 0;
@@ -427,7 +428,15 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
     if (JS_IsException(value)) {
         value = JS_GetException(st->ctx);
         set_error_out(err, err_len, st->ctx, value);
-        /* 预算超时与宿主中断在引擎里都是 "interrupted"，这里给出可区分的文案。 */
+        /*
+         * 预算超时与宿主中断在引擎里都是 "interrupted"：按中断原因给出
+         * 可判定的 err_kind（1=预算、2=宿主），文案只作兼容展示。
+         */
+        if (err_kind != 0) {
+            if (st->interrupt_reason == 1) *err_kind = 2;
+            else if (st->interrupt_reason == 2) *err_kind = 1;
+            else *err_kind = 0;
+        }
         if (st->interrupt_reason == 2) {
             static const char TIMEOUT_MSG[] = "timeout: evaluation exceeded budget";
             char *m = malloc(sizeof(TIMEOUT_MSG));
