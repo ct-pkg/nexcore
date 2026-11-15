@@ -5,7 +5,7 @@
 >
 > 事实基线：仓库 HEAD `ced05d4`（2026-11-15）。编译器 `ct v0.44.2`
 > （`PATH="$HOME/.local/ct/0.44.2:$PATH"`，见 [docs/toolchain.md:5-13](../toolchain.md)）；
-> 系统 `ct` 为 v0.49.0，只在「固有方法跨单元」一项复跑过。
+> 系统 `ct` 为 v0.49.0，只在「命名空间固有静态方法」一项复跑过（见 CT-DEF-001）。
 > 探针源码已落在 [experiments/oo_shim/](../../experiments/oo_shim/README.md)，可逐条重建。
 
 ---
@@ -158,17 +158,26 @@ app_null/app.c == app_quick/app.c   （diff 无输出，逐字节相同）
 QuickJS，而 ⑩（[check.sh:459-462](../../tools/check.sh#L459-L462)）明确禁止 null 档依赖 QuickJS。
 只链一个实现时，vtable 只是给每次调用加一次间接跳转。
 
-### 2.5 固有方法（`impl Ring { ... }`）跨单元可用性
+### 2.5 固有方法（`impl Ring { ... }`）的可用边界
 
-`p5_inherent`：同单元内 `Ring.open(4)` 成立（输出 `depth=0`）；
-跨单元 `import queuei::queuei;` 后写 `Ring.open(4)`，`ct v0.44.2` 与 `ct v0.49.0` 都报：
+后续复核修正了本节最初的结论：**不是「跨单元不可用」，而是「命名空间单元里的静态方法不可用」**。
+最小复现、两版原始输出与完整边界矩阵见
+[CT-DEF-001](ct-defect-namespaced-inherent-static.md)（[复现目录](../../experiments/oo_shim/issue_inherent_cross_unit/)）。
 
-```text
-app/app.ct:7:19: error: use of an undeclared variable
-```
+实测边界（`ct v0.44.2` 与 `v0.49.0` 一致）：
 
+| 单元有 `namespace` | 调用形态 | 同单元 | 跨单元 |
+| --- | --- | --- | --- |
+| 有 | `Ring.open(4)`（静态） | FAIL | FAIL |
+| 有 | `r.get()`（实例） | PASS | PASS |
+| 无 | `Ring.open(4)`（静态） | PASS | PASS |
+
+原始报错是 `use of an undeclared variable`，但生成头里方法已导出为
+`int ring_Ring_open(int n);`——失败在调用点的名字解析，不在可见性。
 另外 `impl` 内的方法**必须带函数体**，只写原型报 `unexpected token`。
-结论：固有方法目前不能用来替掉队列的跨单元 SHIM。
+
+结论：命名空间单元不能用静态固有方法做构造入口；实例方法可用，但消费者要持有带类型的
+接收者。队列的 `void *` 不透明句柄下，SHIM 静态映射仍是正确选择（理由见 §4）。
 
 ### 2.6 为什么「不动构建脚本」做不到
 
@@ -280,7 +289,7 @@ app/app.ct:7:19: error: use of an undeclared variable
 | 7 个 `nexcore_*` 导出函数（[NexCore.h.ct:113-125](../../src/NexCore.h.ct#L113-L125)） | C ABI 契约：符号名、调用约定、导出白名单（⑩ 恰好 7 个）。改成方法会改符号与布局 |
 | `NexCoreSink` / `NexCoreLog`（[NexCore.h.ct:78-80](../../src/NexCore.h.ct#L78-L80)） | 必须是无 userdata 的 C 函数指针（上下文走 `void *`）；CT 闭包是 `(fn, env)` 两词 ABI，不能当 C 回调（bindings §3 / SH-67） |
 | `nexcore_stat` 的 key 分发（[NexCore.ct:293-326](../../src/NexCore.ct#L293-L326)） | 冻结的整数契约（1..18 不改号）；表驱动已足够，vtable/注册表只会把编号藏起来 |
-| queue 的 push/pop（[queue.ct:38-79](../../src/queue/queue.ct#L38-L79)） | 单实现、每消息热路径；vtable 只加间接寻址、不买任何多态；跨单元固有方法当前不可用（§2.5） |
+| queue 的 push/pop（[queue.ct:38-79](../../src/queue/queue.ct#L38-L79)） | 单实现、每消息热路径；vtable 只加间接寻址、不买任何多态；队列是命名空间单元，固有静态入口编不过（§2.5 / [CT-DEF-001](ct-defect-namespaced-inherent-static.md)） |
 | queue 返回码 → NX 码映射（[NexCore.ct:22-24](../../src/NexCore.ct#L22-L24)） | 是跨单元契约，必须显式；抽象成「错误类型」会把策略藏进队列单元 |
 | `schema_hash_matches`（[NexCore.ct:38-47](../../src/NexCore.ct#L38-L47)） | 单点使用、无状态、无多实现 |
 | `protocol` 的两个谓词（[protocol.ct:7-24](../../src/protocol/protocol.ct#L7-L24)） | 纯函数；若保留，静态映射比 trait 对象更合适 |
@@ -311,7 +320,7 @@ app/app.ct:7:19: error: use of an undeclared variable
 - **未跑全量 `tools/check.sh`**：本机 `build/` 封存，且工作树有其他会话在改 `src/`
   （HEAD `ced05d4`，未跟踪 `tests/pump_microtask.c`）。本报告所有实测都来自 `/tmp` 最小工程，
   产品仓库未构建、未提交。
-- `ct v0.44.2` 与 `v0.49.0` 的差异未系统扫描；只在 §2.5 一项复跑，两者同错。
+- `ct v0.44.2` 与 `v0.49.0` 的差异未系统扫描；§2.5 一项在两端行为一致，其余未扫。
 - S1 的两档 `NexCore.c` 同 sha 是**基于 §2.2 的等价推演**，尚未在真实 `src/` 上实测；
   落地时以判据 2 为准，不成立就不算通过。
 - S3 的跨单元 vtable 已验证最小形态，但把它接进 `NexCore.ct` 需要同时改 ⑤a 与（若运行期二选一）⑩，

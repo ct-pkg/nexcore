@@ -1,0 +1,14 @@
+/* 对照 2：不写 namespace 时，同一跨单元调用可通过 */
+pub struct Ring {
+    int n;
+}
+
+impl Ring {
+    pub static int open(int n)
+    {
+        Ring r;
+
+        r.n = n;
+        return r.n;
+    }
+}

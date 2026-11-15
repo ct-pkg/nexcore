@@ -1,0 +1,16 @@
+/* A 单元（命名空间 ring）：发布类型 + 固有静态方法 */
+namespace ring;
+
+pub struct Ring {
+    int n;
+}
+
+impl Ring {
+    pub static int open(int n)
+    {
+        Ring r;
+
+        r.n = n;
+        return r.n;
+    }
+}

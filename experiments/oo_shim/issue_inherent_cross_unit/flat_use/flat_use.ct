@@ -1,0 +1,7 @@
+/* 对照 2 的调用方：与 use/use.ct 相同，只差 import 路径 */
+import Ring;
+
+int main(void)
+{
+    return Ring.open(4);
+}

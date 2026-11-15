@@ -1,0 +1,19 @@
+/* 正对照：去掉 namespace 后，同一单元内的固有静态方法调用可以编译 */
+pub struct Ring {
+    int n;
+}
+
+impl Ring {
+    static int open(int n)
+    {
+        Ring r;
+
+        r.n = n;
+        return r.n;
+    }
+}
+
+int main(void)
+{
+    return Ring.open(4);
+}

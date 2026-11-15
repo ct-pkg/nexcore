@@ -1,0 +1,10 @@
+/* 边界对照的调用方：跨单元调用命名空间内的实例方法，预期通过 */
+import ring::inst;
+
+int main(void)
+{
+    Ring r;
+
+    r.n = 4;
+    return r.get();
+}

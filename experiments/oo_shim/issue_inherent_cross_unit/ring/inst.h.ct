@@ -1,0 +1,13 @@
+/* 边界对照：命名空间内的实例方法（不是静态方法）可以正常工作 */
+namespace ring;
+
+pub struct Ring {
+    int n;
+}
+
+impl Ring {
+    pub int get()
+    {
+        return self.n;
+    }
+}

@@ -110,15 +110,22 @@ cc -std=c99 -Wall -Wextra -Werror -I outl outl/local.c -o localbin
 ./localbin      # depth=0
 ```
 
-同单元成立。跨单元调用（`import queuei::queuei;` 后写 `Ring.open(4)`）在
-`ct v0.44.2` 与 `ct v0.49.0` 上都是：
+同单元成立（注意：`local.ct` **没有** namespace）。跨单元调用
+（`import queuei::queuei;` 后写 `Ring.open(4)`）在 `ct v0.44.2` 与 `ct v0.49.0` 上都是：
 
 ```text
 app/app.ct:7:19: error: use of an undeclared variable
 ```
 
+**后续复核修正**：真正的触发条件是「单元声明了 `namespace`」，不是「跨单元」——
+带 namespace 时**同单元**也报同一句错；去掉 namespace 后同单元与跨单元都能过。
+完整复现、正/负对照与边界矩阵已单列为
+[CT-DEF-001](../../docs/reviews/ct-defect-namespaced-inherent-static.md)，
+最小工程在 [issue_inherent_cross_unit/](issue_inherent_cross_unit/)。
+
 另外 `impl` 内的方法必须带函数体，只写原型报 `unexpected token`
-（`pub void * open(int32_t capacity);`）。结论：固有方法目前不能替代跨单元的队列 SHIM。
+（`pub void * open(int32_t capacity);`）。结论：命名空间单元不能用静态固有方法做构造入口，
+队列的 SHIM 不能换成 `Ring.open(...)`。
 
 ---
 

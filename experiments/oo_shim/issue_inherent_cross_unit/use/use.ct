@@ -1,0 +1,7 @@
+/* B 单元：import A，跨单元调用 A 的固有静态方法 */
+import ring::Ring;
+
+int main(void)
+{
+    return Ring.open(4);
+}

@@ -1,0 +1,8 @@
+/* 负例：impl 里只写声明，不写函数体 */
+struct Ring {
+    int n;
+}
+
+impl Ring {
+    static int open(int n);
+}

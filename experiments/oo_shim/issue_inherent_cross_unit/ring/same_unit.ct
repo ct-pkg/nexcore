@@ -1,0 +1,21 @@
+/* 对照 A：同一单元、同一命名空间，仍然失败 —— 证明不是「跨单元」导致的 */
+namespace ring;
+
+pub struct Ring {
+    int n;
+}
+
+impl Ring {
+    static int open(int n)
+    {
+        Ring r;
+
+        r.n = n;
+        return r.n;
+    }
+}
+
+int probe(void)
+{
+    return Ring.open(4);
+}
