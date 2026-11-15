@@ -43,13 +43,15 @@
 
 ```text
 [条目] ACC-A-01
-[环境] macOS 15.x / Apple silicon / clang 16 / CT c27da3d / QuickJS <commit>
+[环境] macOS 15.x / Apple silicon / clang 16 / CT v0.44.2 (328e5e63) / QuickJS <commit>
 [命令] <完整命令>
 [结果] PASS/FAIL
 [输出] <关键 stdout/stderr，或日志路径>
 [产物] build/reports/ACC-A-01.txt（或截图/二进制）
 [时间] 2026-11-06T12:00:00+08:00
 ```
+
+> 2026-11-15 重定基线：模板里的 `CT` 字段统一写 `v0.44.2`（`328e5e63`），原基线 `c27da3d`（v0.19.1）作废；此前存档的证据仍按其记录时的基线解读。
 
 - 性能数据必须附：设备型号、OS、构建类型（Debug/Release）、payload 大小、样本数、warmup 数。
 - 不允许用 Debug 构建的数据声称 Release 性能；不允许用模拟器数据声称真机性能。

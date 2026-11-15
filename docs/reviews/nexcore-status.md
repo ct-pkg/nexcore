@@ -32,15 +32,16 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 | 项 | 值 | 出处 |
 | --- | --- | --- |
 | 原声明 | `c27da3d`（v0.19.1） | 升级前 `docs/README.md:19`、`docs/tutorial.md:98` |
-| 现声明 | `ct v0.44.1`，`ct-lang` tag `v0.44.1` = `158d7f40`，升级日期 2026-11-15 | `docs/README.md:19`、`docs/tutorial.md:6,98`、`experiments/README.md:4`、`experiments/build.sh:5`（提交 `808fc53`） |
-| 本机二进制 | `ct v0.44.1`（`/Users/samxx/.local/bin/ct`，不在默认 PATH） | `PATH="$HOME/.local/bin:$PATH" ct --version` |
-| 源码 HEAD | `b8d50c3f`，最新 tag `v0.44.2`（`328e5e63`） | `git -C ct-lang describe --tags --abbrev=0` |
+| 现声明 | `ct v0.44.2`，`ct-lang` tag `v0.44.2` = `328e5e63`，重定日期 2026-11-15 | `docs/README.md:19`、`docs/tutorial.md:6,98`、`experiments/README.md:4`、`experiments/build.sh:5`、`docs/design.md:250`、`docs/acceptance.md:46`、`docs/open-questions.md:291,295` |
+| 验证用二进制 | `ct v0.44.2`，由 `git archive v0.44.2` + ct-lang 自带 `install.sh`（`CT_SOURCE_DIR=.`）构建到 `/tmp/ct-0.44.2`，不覆盖系统 `ct` | `/tmp/ct-0.44.2/ct --version` |
+| 系统二进制 | `ct v0.44.1`（`/Users/samxx/.local/bin/ct`，不在默认 PATH） | `PATH="$HOME/.local/bin:$PATH" ct --version` |
+| 源码 HEAD | `b8d50c3f`（`v0.44.2-4-gb8d50c3f`，其后 4 个提交均为 docs） | `git -C ct-lang describe --tags` |
 
-**偏差**：二进制 v0.44.1 比 `ct-lang` 的 `v0.44.2` 落后一个补丁版本。本文所有实测都基于 v0.44.1；v0.44.2 的行为未验证，标 `[未验证]`。
+**偏差**：系统 `ct` 仍是 v0.44.1，比基线 tag 旧一个补丁版本；本文所有结论都用自建的 `/tmp/ct-0.44.2/ct` 产出，不是拿 v0.44.1 的结果顶替。`v0.44.1` 只是 2026-11-15 升级过程中的中间态，不构成基线。
 
 ### 3.1 升级时修掉的 2 处不兼容
 
-基线从 v0.19.1 跳到 v0.44.1（跨 25 个次版本），实测只暴露 2 处，都在 `experiments/build.sh` 的「已知语言缺口」探针里，产品代码 `src/` 零改动：
+基线从 v0.19.1 跳到 v0.44.2（跨 25 个次版本），实测只暴露 2 处，都在 `experiments/build.sh` 的「已知语言缺口」探针里，产品代码 `src/` 零改动；v0.44.1 → v0.44.2 增量**零不兼容**：
 
 | # | 位置 | 旧期望 | 新行为（原文） | 归类 |
 | --- | --- | --- | --- | --- |
@@ -49,31 +50,32 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 
 第 1 处只改期望串；第 2 处把「断言被丢弃」改成 `expect_fail` 断言报错。另有两条探针（`errno_probe`、`ifdef_probe`）的旧期望串在新版仍匹配，未动。本轮**未发现 CT 自身缺陷**，因此没有需要登记给 CT 仓库的提案材料。
 
-### 3.2 修复后实测
+### 3.2 修复后实测（全部在 `ct v0.44.2` 上）
 
 仓库 `build/` 目录被 macOS `com.apple.provenance` 封存（`rm`/`mkdir`/`xattr` 全 EPERM），所有跑测都在副本 `/tmp/nxb2` 完成，QuickJS 静态库以符号链接复用已构建的 `libquickjs.a`：
 
 | 命令 | 结果 | 耗时 |
 | --- | --- | --- |
-| `bash tools/check.sh` | rc=0，末行 `ALL CHECKS PASSED` | real 6.27s |
-| `bash experiments/build.sh` | rc=0，末行 `== ALL CHECKS PASSED ==` | real 7.65s |
+| `bash tools/check.sh` | rc=0，末行 `ALL CHECKS PASSED` | real 5.62s |
+| `bash experiments/build.sh` | rc=0，末行 `== ALL CHECKS PASSED ==` | real 7.04s |
 | `bash tools/check.sh g0` | rc=0，`ok g0 (block 1.9.0/b8651332, landing 3 段, 8 行, session-map, 版本落点)` | — |
 
-升级前状态（v0.19.1）无法复现——本机没有该版本二进制，标 `[未实测]`。首跑 v0.44.1 时的失败点就是上表第 1 处（`FAIL: import_in_compile_mode failed with an unexpected message`）。
+升级前状态（v0.19.1）无法复现——本机没有该版本二进制，标 `[未实测]`。v0.44.1 首跑时的失败点就是上表第 1 处（`FAIL: import_in_compile_mode failed with an unexpected message`），修完后在 v0.44.1 与 v0.44.2 上均为全绿。
 
-### 3.3 仍残留的旧引用
+### 3.3 旧引用收口情况
 
-以下文件仍写着 `c27da3d` / `v0.19.1`，但**不属于本次改动范围**，需要单独裁定是否刷新：
+2026-11-15 已把「固定 `c27da3d` 作为 v1 基线」一类表述全部改成新口径（版本 + commit + 重定日期），并在原处留历史注记，没有静默抹掉：
 
-| 位置 | 原文性质 | 建议 |
+| 位置 | 原来写的 | 现在写的 |
 | --- | --- | --- |
-| `docs/design.md:250` | 「结论来自本机 `ct`（`c27da3d`）实测」 | 历史实测记录，可在下一轮复验后更新为「v0.19.1 实测 + v0.44.1 复验」 |
-| `docs/acceptance.md:46` | 验收环境行 `CT c27da3d` | 属活文档，应随基线改为 `158d7f40` |
-| `docs/open-questions.md:291` | 「`c27da3d` 的实测结论可能在新版本变化」 | 事实描述，保留 |
-| `docs/open-questions.md:295` | 「固定 `c27da3d`（v0.19.1）作为 v1 基线；CI 使用固定 commit」 | **与现声明直接冲突**，必须重裁（见 §6.4） |
-| `docs/session-map.md:48` | 原「基线冲突只登记、未改声明」 | 本轮已改为「2026-11-15 已重定」 |
+| `docs/design.md:250` | 「结论来自本机 `ct`（`c27da3d`）实测」 | 「原始实测在 `c27da3d`（v0.19.1）；2026-11-15 重定基线为 `v0.44.2`（`328e5e63`）…在该版本上复验通过」 |
+| `docs/acceptance.md:46` | 环境行 `CT c27da3d` | 环境行 `CT v0.44.2 (328e5e63)`，模板后加一行重定基线注记 |
+| `docs/open-questions.md:291` | 「`c27da3d` 的实测结论可能在新版本变化」 | 「旧基线 `c27da3d` 的实测结论可能在新版本变化」 |
+| `docs/open-questions.md:295` | 「固定 `c27da3d`（v0.19.1）作为 v1 基线」 | 「固定 `v0.44.2`（`328e5e63`）作为 v1 基线」，并注「原默认作废」 |
+| `docs/session-map.md:48` | 「基线冲突只登记、未改声明」 | 「2026-11-15 已重定，最终口径 v0.44.2」 |
+| `docs/README.md:19`、`docs/tutorial.md:6,98`、`experiments/README.md:4`、`experiments/build.sh:5` | v0.19.1 / v0.44.1 | v0.44.2（`328e5e63`） |
 
-`reviews/`（设计评审）与 `2026-11-12/`（旧分析交付）属带日期的历史记录，按原样保留。
+仍保留旧版本号的地方只有带日期的历史记录：`reviews/`（设计评审，含 `ct-capability-audit.md` 的 v0.19.1 实测矩阵）、`2026-11-12/`（旧分析交付）。这些**是历史记录，不代表现行基线**。
 
 ---
 
@@ -142,12 +144,11 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 
 也就是说：**Q-01 决定「依赖哪个引擎」，6.1 决定「要不要依赖引擎」**。前者是 P2 的门，后者是 P1 的门，顺序不能反。
 
-### 6.4 基线本身是否需要再裁一次
+### 6.4 基线是否还需要再裁
 
-需要。理由有两条，都是硬冲突：
+**文档层面的冲突已收口**：`docs/open-questions.md:295` 已改为「固定 `v0.44.2`（`328e5e63`）」，与 `docs/README.md:19` 一致，不再有「两份文档各说各话」。
 
-- `docs/open-questions.md:295` 仍以「固定 `c27da3d`（v0.19.1）作为 v1 基线；CI 使用固定 commit」为默认，与 `docs/README.md:19` 的新声明（v0.44.1 / `158d7f40`）直接矛盾。
-- 跨 25 个次版本只暴露 2 处探针不兼容，说明此前 v0.19.1 时期的 FIX/GAP 结论**大多需要在新版复验**（`docs/reviews/ct-capability-audit.md`、`docs/design.md:250` 的结论都基于 `c27da3d`）。复验完成前，「CT 能力边界」一节只能当历史结论用。
+**但内容层面的账还在**：跨 25 个次版本只暴露 2 处探针不兼容，说明此前 v0.19.1 时期的 FIX/GAP 结论**大多需要在新版复验**（`docs/reviews/ct-capability-audit.md`、`docs/design.md:250` 的结论都基于 `c27da3d`）。v0.44.2 上只复验了「能构建、15 项机械检查全绿」，没有逐条重跑能力矩阵；复验完成前，「CT 能力边界」一节只能当历史结论用。
 
 ---
 
@@ -164,7 +165,7 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 | 5 | G4 文档可执行 | 无 `snippets/`，5 份文档超 300 行 | 文档命令不可复跑，评审只能读不能验 |
 | 6 | G6 台账 | 无 `issues/` | 问题无处闭合，phase 收口无依据 |
 | 7 | G8 提交粒度 | 无 `g8`、无 phase/tag 体系 | 提交无法按 phase 校验，回滚无边界 |
-| 8 | G9 之外的 pin 收尾 | 块头 pin 一致，但 `open-questions.md:295` 旧 pin 未清 | 两套基线并存，任何「按基线实测」的结论都会被质疑 |
+| 8 | G9 之外的 pin 收尾 | 块头 pin 一致；`open-questions.md:295` 旧 pin 已于 2026-11-15 收口 | —（已闭合，留档） |
 
 **三步走**：
 
@@ -183,7 +184,8 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 | `b19b2ba` | 就绪度盘点：按 G0–G9 逐项判定，结论「需先补 8 项」 |
 | `89de83d` | 落 `docs/session-map.md` 并新增 `g0` 规约纳管门禁（正反两路实测过） |
 | `30f5a7e` | P1 是否依赖 QuickJS 的两席材料（不自行裁定，含三项实测） |
-| `808fc53` | CT 基线升级到 v0.44.1（`158d7f40`）+ 修两处探针不兼容 |
+| `808fc53` | CT 基线升级到 v0.44.1（`158d7f40`）+ 修两处探针不兼容（v0.44.1 为中间态） |
+| 本次提交 | CT 基线与 `ct-lang` tag `v0.44.2`（`328e5e63`）对齐，收口 8 处旧基线引用并留历史注记；v0.44.2 上三套检查全绿 |
 
 > 更正：`46e7196` 不在本仓库历史里，它是 `ct-fsguard` 的规范纳管提交（`docs(spec): 纳管工程规范 1.9.0`），一并列在此处易误读。
 
@@ -191,6 +193,6 @@ nexcore 处在**「骨架能构建、契约未裁定」**的阶段：`tools/chec
 
 ## 附：本文的实测环境
 
-- `ct v0.44.1`（`/Users/samxx/.local/bin/ct`，需显式加 PATH）；`ct-lang` HEAD `b8d50c3f`，tag `v0.44.2`
+- `ct v0.44.2`（由 `git archive v0.44.2` 取源码、ct-lang 自带 `install.sh` 构建到 `/tmp/ct-0.44.2`，不覆盖系统 `ct`）；系统 `ct` 仍是 `/Users/samxx/.local/bin/ct` 的 v0.44.1；`ct-lang` HEAD `b8d50c3f`（`v0.44.2-4`）
 - QuickJS `2025-09-13`，静态库由 `experiments/build.sh` 构建；`experiments/third_party/` 被 `.gitignore` 忽略，不在仓库内
 - 跑测位置：仓库副本（原仓库 `build/` 被 `com.apple.provenance` 封存，`rm`/`mkdir`/`xattr` 均 EPERM）；清理需在你自己的终端 `rm -rf /Users/samxx/trae-ws/nexcore/build`

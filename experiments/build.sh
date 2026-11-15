@@ -2,7 +2,7 @@
 #
 # experiments/build.sh — 重建并运行全部地基验证。
 #
-# 依赖：ct（v0.44.1 实测）、cc、make、curl、tar；Swift 可选。
+# 依赖：ct（v0.44.2 实测）、cc、make、curl、tar；Swift 可选。
 # QuickJS 只在 third_party/quickjs/libquickjs.a 缺失时下载。
 #
 set -euo pipefail
