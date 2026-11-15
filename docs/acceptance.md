@@ -78,7 +78,7 @@
 | ID | 条目 | 方法 | 阈值/判定 | 证据 |
 |---|---|---|---|---|
 | ACC-B-01 | 信封合法性 | 固定用例文件 `tests/envelope-v1.json`：30 条正例 + 30 条负例（缺 id、id=0、params 为数组、result+error、未知方法、错误方向、超限、坏 JSON 各 ≥3 条，共 60 条） | 正例全成功；负例返回对应错误码（含 `result+error` → `E_INVALID_REQUEST`）；无崩溃 | 测试报告 |
-| ACC-B-02 | 错误码稳定 | 对每个错误码构造触发条件，断言 `code` 精确匹配 | protocol.md §4 的 19 个错误码全部命中；`message` 不参与断言 | 测试报告 |
+| ACC-B-02 | 错误码稳定 | 对每个错误码构造触发条件，断言 `code` 精确匹配 | protocol.md §4 的 20 个错误码全部命中；`message` 不参与断言 | 测试报告 |
 | ACC-B-03 | id 匹配 | UI→JS 与 JS→UI 各 10k 并发请求；固定种子 `id-v1` 生成 id，经可注入调度器（`tests/sched.c`）按逆序/随机/固定延迟三档回包 | 每个 Promise/continuation 恰好 settle 一次，结果与 `(direction,id)` 对应；无串扰 | 测试报告 + 不变量断言 |
 | ACC-B-04 | 超时与晚到响应 | 1 ms/50 ms 超时；超时后真实响应到达 | 发起方收到 `E_TIMEOUT`；晚到响应被丢弃；`NX_STAT_DROPPED_LATE` 递增；无第二次 settle | 测试报告 |
 | ACC-B-05 | 取消 | `$cancel` 在响应前/后/竞跑 1000 次；竞跑用 barrier 固定三种时序（先取消、先响应、同 turn 各 1/3） | 取消前：`E_CANCELLED` 恰好一次；取消后：原响应正常；竞跑：无双重 settle | 测试报告 |

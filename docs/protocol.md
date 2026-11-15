@@ -114,6 +114,7 @@
 | `E_HANDLER_EXCEPTION` | -32012 | 否 | 平台 handler 抛错/返回错误 |
 | `E_FORBIDDEN` | -32013 | 否 | 方向/白名单不允许（如 UI 调 core-only 方法） |
 | `E_EMIT_DEPTH` | -32014 | 否 | 重入 emit 超过深度上限 |
+| `E_INTERRUPTED` | -32015 | 否 | 宿主主动中断当前求值 |
 
 > `-32011` 原先分配给 `E_NOT_SUBSCRIBED`，该码已删除：`$unsubscribe` 对未知 subId 一律幂等忽略，见 §6.3。错误码数值不复用，避免旧日志误读。
 
