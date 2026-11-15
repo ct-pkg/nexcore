@@ -43,6 +43,31 @@ printf 'var a=1; a+1\n' >"$TMP/basic.nexjs"
 out="$("$NEX" "$TMP/basic.nexjs")" || fail "basic 脚本退出码非 0"
 [ "$out" = "2" ] || fail "basic 输出应为 2，实际：$out"
 
+# 正例 1b：-e 内联（PH-12）
+out="$("$NEX" -e 'var a=1; a+1')" || fail "-e 退出码非 0"
+[ "$out" = "2" ] || fail "-e 输出应为 2，实际：$out"
+
+# 正例 1c：stdin（PH-12）
+out="$(printf '1+2\n' | "$NEX" -)" || fail "stdin 退出码非 0"
+[ "$out" = "3" ] || fail "stdin 输出应为 3，实际：$out"
+
+# 正例 1d：process.argv / process.env（PH-12）
+printf 'Shell.print(process.argv[1]+"|"+process.env.NEX_T)\n' >"$TMP/argv.nexjs"
+out="$(NEX_T=v "$NEX" "$TMP/argv.nexjs")" || fail "argv/env 退出码非 0"
+[ "$out" = "$TMP/argv.nexjs|v" ] || fail "argv/env 实际：$out"
+
+# 正例 1e：SIGINT 标记（PH-12）：求值结束后按标记退出 130
+printf 'var t=Date.now();while(Date.now()-t<300){}"done"\n' >"$TMP/spin.nexjs"
+"$NEX" "$TMP/spin.nexjs" >/dev/null 2>&1 &
+pid=$!
+sleep 0.1
+kill -INT "$pid" 2>/dev/null || true
+set +e
+wait "$pid"
+rc=$?
+set -e
+[ "$rc" -eq 130 ] || fail "SIGINT 应 rc=130，实际 rc=$rc"
+
 # 正例 2：shebang 直跑（内核传 argv，不依赖安装到 PATH）
 printf '#!%s\nvar b=2; b+1\n' "$NEX" >"$TMP/shebang.nexjs"
 chmod +x "$TMP/shebang.nexjs"
