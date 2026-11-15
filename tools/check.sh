@@ -646,7 +646,7 @@ if [ "$JS_BACKEND" = "quickjs" ]; then
     -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
     tests/native_provider.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/native_provider"
   "$BIN/native_provider" || { echo "⑯ FAIL: 原生 Provider 未生效或越界读了尾字段" >&2; exit 1; }
-  echo "⑯ native provider: PASS（注册/未注册/回调错误/老 struct_size 四态）"
+  echo "⑯ native provider: PASS（注册/未注册名/清单外直调/回调错误/五档 struct_size）"
 else
   echo "⑯ native provider: N/A (NEXCORE_JS=null：无引擎，不计通过)"
 fi

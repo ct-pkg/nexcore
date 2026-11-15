@@ -168,6 +168,23 @@ int main(void)
     }
     printf("C: callback error -> %s\n", got);
 
+    /* E3-b：白名单是真校验。直接调内部入口、传一个没登记的全名，必须抛错；
+     * 只挂载不校验的实现会把它当合法调用（回调会返回第一个实参）。 */
+    if (ask(h, &sink,
+            "(function(){try{return String(__nx_native('Shell.other','[5]'))}catch(e){return 'threw'}})()",
+            &got) != 0 || strcmp(got, "\"threw\"") != 0) {
+        printf("D FAIL: 未登记全名未被拒绝 -> %s\n", got ? got : "<none>");
+        return 71;
+    }
+    printf("D: unlisted full name -> %s\n", got);
+
+    /* E3-c：清单本身不得留在脚本可读的全局上。 */
+    if (ask(h, &sink, "typeof __nx_native_names", &got) != 0 || strcmp(got, "\"undefined\"") != 0) {
+        printf("E FAIL: __nx_native_names 仍对脚本可见 -> %s\n", got ? got : "<none>");
+        return 72;
+    }
+    printf("E: typeof __nx_native_names -> %s\n", got);
+
     if (nexcore_shutdown(h) != NX_OK) return 8;
     if (nexcore_free(h) != NX_OK) return 9;
 

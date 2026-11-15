@@ -30,6 +30,8 @@ struct BackendState {
     void *native_user;
     const char *native_names;
     int32_t native_names_len;
+    char **names;
+    int32_t names_count;
 }
 
 /*
@@ -51,10 +53,86 @@ static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, J
 
 static void free_state(struct BackendState *st)
 {
+    int32_t i;
+
     if (st == 0) return;
+    for (i = 0; i < st->names_count; i++) {
+        free(st->names[i]);
+    }
+    free(st->names);
     if (st->ctx != 0) JS_FreeContext(st->ctx);
     if (st->rt != 0) JS_FreeRuntime(st->rt);
     free(st);
+}
+
+/*
+ * 把 native_names（JSON 字符串数组）拷贝成 C 数组：宿主可以在 create 返回后释放原缓冲。
+ * 解析失败返回 -1（异常已清）。
+ */
+static int32_t copy_names(struct BackendState *st)
+{
+    JSValue arr;
+    JSValue item;
+    JSValue ex;
+    const char *s;
+    int32_t count;
+    int32_t i;
+
+    st->names = 0;
+    st->names_count = 0;
+    arr = JS_ParseJSON(st->ctx, st->native_names, (size_t)st->native_names_len, "<native_names>");
+    if (JS_IsException(arr)) {
+        ex = JS_GetException(st->ctx);
+        JS_FreeValue(st->ctx, ex);
+        return NXJB_ERR;
+    }
+    count = 0;
+    while (1) {
+        item = JS_GetPropertyUint32(st->ctx, arr, (uint32_t)count);
+        if (JS_IsUndefined(item)) {
+            JS_FreeValue(st->ctx, item);
+            break;
+        }
+        JS_FreeValue(st->ctx, item);
+        count = count + 1;
+    }
+    if (count == 0) {
+        JS_FreeValue(st->ctx, arr);
+        return 0;
+    }
+    st->names = calloc((size_t)count, sizeof(char *));
+    if (st->names == 0) {
+        JS_FreeValue(st->ctx, arr);
+        return NXJB_ERR;
+    }
+    for (i = 0; i < count; i++) {
+        item = JS_GetPropertyUint32(st->ctx, arr, (uint32_t)i);
+        s = JS_ToCString(st->ctx, item);
+        JS_FreeValue(st->ctx, item);
+        if (s == 0) {
+            JS_FreeValue(st->ctx, arr);
+            return NXJB_ERR;
+        }
+        st->names[i] = malloc(strlen(s) + 1);
+        if (st->names[i] != 0) {
+            memcpy(st->names[i], s, strlen(s) + 1);
+            st->names_count = i + 1;
+        }
+        JS_FreeCString(st->ctx, s);
+    }
+    JS_FreeValue(st->ctx, arr);
+    return 0;
+}
+
+/* 派发点的白名单校验：全名精确匹配。 */
+static int32_t name_allowed(struct BackendState *st, const char *name, size_t len)
+{
+    int32_t i;
+
+    for (i = 0; i < st->names_count; i++) {
+        if (strlen(st->names[i]) == len && memcmp(st->names[i], name, len) == 0) return 1;
+    }
+    return 0;
 }
 
 /*
@@ -65,9 +143,12 @@ static int32_t install_natives(struct BackendState *st)
 {
     JSValue g;
     JSValue v;
+    JSAtom atom;
 
     if (st->native_call == 0) return 0;
     if (st->native_names == 0 || st->native_names_len <= 0) return 0;
+    if (copy_names(st) != 0) return NXJB_ERR;
+    if (st->names_count <= 0) return 0;
     JS_SetContextOpaque(st->ctx, st);
     g = JS_GetGlobalObject(st->ctx);
     JS_SetPropertyStr(st->ctx, g, "__nx_native",
@@ -83,6 +164,12 @@ static int32_t install_natives(struct BackendState *st)
         return NXJB_ERR;
     }
     JS_FreeValue(st->ctx, v);
+    /* 清单挂完即撤：脚本读不到白名单本身，但仍可调 __nx_native（入口会校验）。 */
+    g = JS_GetGlobalObject(st->ctx);
+    atom = JS_NewAtom(st->ctx, "__nx_native_names");
+    JS_DeleteProperty(st->ctx, g, atom, 0);
+    JS_FreeAtom(st->ctx, atom);
+    JS_FreeValue(st->ctx, g);
     return 0;
 }
 
@@ -108,6 +195,11 @@ static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, J
     if (args == 0) {
         JS_FreeCString(ctx, name);
         return JS_EXCEPTION;
+    }
+    if (!name_allowed(st, name, name_len)) {
+        JS_FreeCString(ctx, name);
+        JS_FreeCString(ctx, args);
+        return JS_ThrowTypeError(ctx, "native call: name not registered");
     }
     out = 0;
     out_len = 0;
