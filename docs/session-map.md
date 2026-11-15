@@ -45,6 +45,6 @@
 
 ## 注记
 
-- **CT 基线冲突（只登记，未改声明）**：`docs/README.md:19` 与 `docs/tutorial.md:98` 声明 CT 基线为 `c27da3d`（`ct v0.19.1`），而本轮实测环境是 `ct v0.44.1`（`/Users/samxx/.local/bin/ct`）。两处声明本轮保持原样，重定基线需单独裁定；在裁定之前，「按基线实测」的结论只能按 v0.44.1 记录并标注偏差。
+- **CT 基线（2026-11-15 已重定）**：`docs/README.md:19`、`docs/tutorial.md:6,98`、`experiments/README.md:4`、`experiments/build.sh:5` 已统一为 `ct v0.44.1`（`ct-lang` tag `v0.44.1` = `158d7f40`），提交 `808fc53`；原 `c27da3d`（v0.19.1）作废。残留旧引用只在不属本轮范围的 `docs/design.md:250`、`docs/acceptance.md:46`、`docs/open-questions.md:291,295`，以及带日期的历史记录（`reviews/`、`2026-11-12/`）。
 - **门禁覆盖缺口**：`tools/check.sh` 目前只有全量检查与 `g0`，`g1`..`g9` 未实现；`docs/session-map.md` 是本轮新建，`issues/`、`docs/phases/`、`docs/snippets/`、`docs/decisions/` 仍不存在。
 - **纳管状态**：nexcore 尚未进入主规范 §11.5 L-7 的纳管清单，按 L-3 仍判「未纳管」；补录需在主规范侧改一行，不在本仓库范围内。
