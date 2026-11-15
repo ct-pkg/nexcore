@@ -21,6 +21,15 @@ NEX="$BIN/nex"
 [ -f "$QJS" ] || { echo "check-host: 缺 $QJS（先跑 experiments/build.sh）" >&2; exit 2; }
 [ -f "$HOST_SRC" ] || { echo "check-host: FAIL 缺 hosts/shell/main.c" >&2; exit 1; }
 
+# null 档归档不含引擎，宿主跑不了脚本：自动重建 quickjs 档，避免「先跑哪档」的顺序陷阱。
+if ! ar t "$ARCHIVE" | grep -q '^js_backend_quickjs\.o$'; then
+  echo "check-host: 当前归档不是 quickjs 档，重建中…" >&2
+  ( cd "$ROOT" && NEXCORE_JS=quickjs bash tools/check.sh >/dev/null ) || {
+    echo "check-host: quickjs 档构建失败" >&2
+    exit 2
+  }
+fi
+
 cc -std=c99 -Wall -Wextra -Werror -I "$ROOT/build/abi" \
   "$HOST_SRC" "$ARCHIVE" "$QJS" -lm -lpthread -o "$NEX"
 

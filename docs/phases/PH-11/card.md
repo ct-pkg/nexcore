@@ -133,3 +133,35 @@ int32_t eval_mode;   /* 0/缺省 = 表达式（现行行为）；1 = 程序模�
 | `libquickjs.a` | 本地需先构建；缺则 `check.sh` rc=2 | `bash experiments/build.sh`（或复用 `/tmp/nx10/experiments/third_party/quickjs/libquickjs.a`） |
 | `nex` 安装 | 本 phase 不安装到系统目录，shebang 用临时目录 + 绝对路径验证 | `PATH="$PWD/build/bin:$PATH" build/bin/nex script.nexjs` |
 | 收口 tag / push | **本轮授权不做**；按 6.7 V-7 属收口动作缺口，登记待办 | `git tag -a v0.11.0 -m "PH-11 <收口 sha 前 7 位>" <sha> && git push origin v0.11.0` |
+
+---
+
+## 9. 收口证据表（2026-11-15，`/tmp/nx11` 副本实跑）
+
+| # | 判据 | 命令 | 原始输出摘要 | rc | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 程序模式可用 | `cc … tests/eval_mode.c build/bin/libnexcore.dylib && /tmp/e1` | `src=<var a=1; a+1> -> 2` / `src=<#!/usr/bin/env nex …> -> 3` / `PROGRAM OK` | 0 | PASS |
+| E2 | 表达式模式不回归 | 同一夹具 + 两档 check.sh | `src=<{id:1}> -> {"id":1}` / `src=<1+1> -> 2` / `ALL CHECKS PASSED (quickjs|null)` | 0 | PASS |
+| E3 | 错误面可观测 | `cc … tests/error_surface.c … && /tmp/e3` | `drain rc=0 delivered=1 last_error=9` / `payload={"code":"E_JS_EXCEPTION","message":"Error: boom"}` / `ERROR OK` | 0 | PASS |
+| E4 | 宿主正例 | `bash tools/check-host.sh` | `HOST OK`（基础脚本 2、shebang 3、`Shell.print` → hi） | 0 | PASS |
+| E5 | 宿主负例 | 同上 | 语法错 rc=1 且 stderr 非空；缺参数 rc=2 | 0 | PASS |
+| E6 | 库绿线不被污染 | `NEXCORE_JS=quickjs bash tools/check.sh`；`bash tools/check.sh` | `ALL CHECKS PASSED (quickjs)` / `ALL CHECKS PASSED (null)`，null 档 SKIP=3；`check-host.sh` 未被 `check.sh` 调用 | 0 | PASS |
+
+**红证记录**
+
+| task | baseline | 命令 | 原始输出（节选） | rc |
+| --- | --- | --- | --- | --- |
+| PH11-T1 | `4a518cd` | `cc … tests/eval_mode.c build/bin/libnexcore.dylib` | `no member named 'eval_mode'` / `use of undeclared identifier 'NEXCORE_EVAL_PROGRAM'`（3 处） | 1 |
+| PH11-T2 | `a73b2b7` | `/tmp/nx11_errsurf`（实现前） | `drain rc=0 delivered=0 last_error=9` / `FAIL: script error swallowed` | 5 |
+| PH11-T3/T4 | `0160641` | `bash tools/check-host.sh`（无 `main.c`） | `check-host: FAIL 缺 hosts/shell/main.c` | 1 |
+
+---
+
+## 10. 挂账（不回炉已收口 phase；与事实不符的登记在此）
+
+| # | 事实 | 影响 | 处置 |
+| --- | --- | --- | --- |
+| K-1 | quickjs 档的 `build/impl/` 同时有 `js_backend.o` 与 `js_backend_quickjs.o`；前者是无 T 符号的 header stub（657 字节） | PH-10 D3 写「quickjs 档没有 `js_backend.o`」与实测不符；⑰ 只对 `build/impl/*.c` 自洽，识别不出档位错配 | **挂账**，PH-12 处理：⑰ 增一条「stub 对象不得有 T 符号」或把 stub 排除出归档 |
+| K-2 | `check-host.sh` 首版要求调用方自己保证归档是 quickjs 档，否则 `HOST OK` 之前先红 | 顺序陷阱（先跑 null 档就把归档覆盖） | 已在 T4 内修：脚本检测归档无 `js_backend_quickjs.o` 时自动重建 quickjs 档 |
+| K-3 | E1d 的 `$error` 只在引擎给出文案时投递；无文案的失败仍只置 `LAST_ERROR` | 宿主对后者只能看到整数码 | 记入 PH-12 候选（ABI 错误码 `NX_E_JS_EXCEPTION` 与结构化 detail） |
+
