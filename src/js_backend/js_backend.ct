@@ -16,9 +16,7 @@ namespace js_backend;
 #define NXJB_ERR -1
 #define NXJB_OK 0
 
-struct BackendState {
-    int32_t turns;
-}
+/* 空后端无状态：句柄只要非空即可（create 据此判断「有后端」）。 */
 
 void *init(const char *bootstrap_js, int32_t bootstrap_len,
            int32_t (*native_call)(void *user, const char *name, size_t name_len,
@@ -26,7 +24,7 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
                                   char **out_json, size_t *out_len),
            void *native_user, const char *native_names, int32_t native_names_len)
 {
-    struct BackendState *st;
+    void *st;
 
     (void)bootstrap_js;
     (void)bootstrap_len;
@@ -35,9 +33,8 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     (void)native_user;
     (void)native_names;
     (void)native_names_len;
-    st = malloc(sizeof(struct BackendState));
+    st = malloc(1);
     if (st == 0) return 0;
-    st->turns = 0;
     return st;
 }
 

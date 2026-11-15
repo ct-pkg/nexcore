@@ -15,8 +15,8 @@ namespace js_backend;
  *
  * 线程约定：句柄只在调用方线程使用（P1 没有 worker 线程），本单元内部不引入锁。
  *
- * native_call 的形状与 ABI 的 NexCoreNativeCall 逐字段同型；这里直接写内联函数指针，
- * 不引入跨头 typedef（ns 内的 typedef 会被生成器加前缀，跨头同名又会撞 C99 重定义）。
+ * native_call 的形状与 ABI 的 NexCoreNativeCall 逐字段同型；用文件顶部的
+ * NxNativeCallFn（pub 且置于 namespace 之外，生成器不加前缀）。
  * native_* 四个参数来自 NexCoreConfig 的尾字段，调用方已保证 struct_size 覆盖到它们；
  * 全为 0 表示不注册任何原生能力。
  */
