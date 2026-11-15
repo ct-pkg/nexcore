@@ -25,6 +25,9 @@ namespace js_backend;
 /* job 队列有界泵的硬上限：自续链（job 里再排 job）必须停下来。 */
 #define NXJB_PUMP_CAP 10000
 
+/* 求值模式（与 ABI 的 NxEvalMode 同值；0 是表达式，保持缺省语义）。 */
+#define NXJB_MODE_PROGRAM 1
+
 /* 只在本单元内使用：runtime/context 的生命周期由 init/shutdown 成对管理。 */
 struct BackendState {
     JSRuntime *rt;
@@ -287,10 +290,12 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     return st;
 }
 
-int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len){
+int32_t eval(void *h, const char *src, int32_t len, int32_t mode, char **out, int32_t *out_len){
     struct BackendState *st;
     char *wrapped;
     char *copy;
+    const char *code;
+    int32_t code_len;
     const char *s;
     size_t slen;
     int32_t i;
@@ -312,19 +317,30 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
     if (prc == NXJB_JOB_THREW) return NXJB_JOB_THREW;
     if (prc < 0) return NXJB_ERR;
 
-    /* 包一层括号：`{"id":1}` 作为脚本会被当成块语句，作为表达式才是对象字面量。 */
-    wrapped = malloc((size_t)len + 3);
-    if (wrapped == 0) return NXJB_ERR;
-    wrapped[0] = '(';
-    i = 0;
-    while (i < len) {
-        wrapped[i + 1] = src[i];
-        i = i + 1;
+    /*
+     * 表达式模式包一层括号：`{"id":1}` 作为脚本会被当成块语句，作为表达式才是对象字面量。
+     * 程序模式（PH-11）原样求值，多语句与 `#!` 首行由引擎处理（实测引擎自己跳过 `#!`）。
+     */
+    wrapped = 0;
+    if (mode == NXJB_MODE_PROGRAM) {
+        code = src;
+        code_len = len;
+    } else {
+        wrapped = malloc((size_t)len + 3);
+        if (wrapped == 0) return NXJB_ERR;
+        wrapped[0] = '(';
+        i = 0;
+        while (i < len) {
+            wrapped[i + 1] = src[i];
+            i = i + 1;
+        }
+        wrapped[len + 1] = ')';
+        wrapped[len + 2] = 0;
+        code = wrapped;
+        code_len = len + 2;
     }
-    wrapped[len + 1] = ')';
-    wrapped[len + 2] = 0;
 
-    value = JS_Eval(st->ctx, wrapped, (size_t)len + 2, "<message>", JS_EVAL_TYPE_GLOBAL);
+    value = JS_Eval(st->ctx, code, (size_t)code_len, "<message>", JS_EVAL_TYPE_GLOBAL);
     free(wrapped);
     if (JS_IsException(value)) {
         value = JS_GetException(st->ctx);
@@ -332,8 +348,14 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
         return NXJB_ERR;
     }
 
-    json = JS_JSONStringify(st->ctx, value, JS_UNDEFINED, JS_UNDEFINED);
-    JS_FreeValue(st->ctx, value);
+    if (mode == NXJB_MODE_PROGRAM && JS_IsUndefined(value)) {
+        /* 程序没有完成值（纯声明）时给宿主一个合法 JSON，而不是字符串 "undefined"。 */
+        JS_FreeValue(st->ctx, value);
+        json = JS_NewStringLen(st->ctx, "null", 4);
+    } else {
+        json = JS_JSONStringify(st->ctx, value, JS_UNDEFINED, JS_UNDEFINED);
+        JS_FreeValue(st->ctx, value);
+    }
     if (JS_IsException(json)) {
         json = JS_GetException(st->ctx);
         JS_FreeValue(st->ctx, json);

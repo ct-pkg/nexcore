@@ -38,11 +38,12 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     return st;
 }
 
-int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len)
+int32_t eval(void *h, const char *src, int32_t len, int32_t mode, char **out, int32_t *out_len)
 {
     (void)h;
     (void)src;
     (void)len;
+    (void)mode;
     if (out != 0) *out = 0;
     if (out_len != 0) *out_len = 0;
     return NXJB_ERR;

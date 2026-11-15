@@ -56,6 +56,7 @@ struct NexCoreHandleImpl {
     NexCoreSink sink;
     uint32_t max_message_bytes;
     int32_t last_error;
+    int32_t eval_mode;
 }
 
 int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
@@ -68,6 +69,7 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     void *native_user;
     const char *native_names;
     int32_t native_names_len;
+    int32_t eval_mode;
 
     if (out == 0) return NX_E_INVALID_ARGUMENT;
     *out = 0;
@@ -92,6 +94,19 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         native_user = cfg->native_user;
         native_names = cfg->native_names;
         native_names_len = (int32_t)cfg->native_names_len;
+    }
+
+    /*
+     * PH-11：eval_mode 同受「逐字段判可用」纪律约束。缺省 0 = 表达式，
+     * 所以 120 字节的旧宿主不读该字段也不会改变语义。
+     */
+    eval_mode = NEXCORE_EVAL_EXPRESSION;
+    if (cfg->struct_size >= NEXCORE_CONFIG_EVAL_MODE_SIZE) {
+        if (cfg->eval_mode == NEXCORE_EVAL_PROGRAM) {
+            eval_mode = NEXCORE_EVAL_PROGRAM;
+        } else if (cfg->eval_mode != NEXCORE_EVAL_EXPRESSION) {
+            return NX_E_INVALID_ARGUMENT;
+        }
     }
 
     q = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
@@ -144,6 +159,7 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         impl->max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
     }
     impl->last_error = NX_OK;
+    impl->eval_mode = eval_mode;
     *out = impl;
     return NX_OK;
 }
@@ -201,7 +217,7 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
     while (rc == 0) {
         resp = 0;
         resp_len = 0;
-        rc = js_backend::Backend.eval(impl->js, msg, len, &resp, &resp_len);
+        rc = js_backend::Backend.eval(impl->js, msg, len, impl->eval_mode, &resp, &resp_len);
         if (rc == 0) {
             if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
                 impl->last_error = NX_E_BACKPRESSURE;

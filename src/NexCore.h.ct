@@ -116,6 +116,8 @@ pub struct NexCoreConfig {
     void *native_user;
     const char *native_names;
     size_t native_names_len;
+    /* PH-11 追加：0/缺省 = 表达式（现行行为）；1 = 程序模式（多语句、#!）。 */
+    int32_t eval_mode;
 }
 
 pub enum NxConfigLayout {
@@ -127,7 +129,15 @@ pub enum NxConfigLayout {
      * 让旧宿主静默失去 Provider（红队 A3）。
      */
     NEXCORE_CONFIG_NATIVE_SIZE = offsetof(struct NexCoreConfig, native_names_len) + sizeof(size_t),
+    /* PH-11：eval_mode 可用的最小 struct_size（同上，绑字段偏移 + 宽度）。 */
+    NEXCORE_CONFIG_EVAL_MODE_SIZE = offsetof(struct NexCoreConfig, eval_mode) + sizeof(int32_t),
     NEXCORE_CONFIG_CURRENT_SIZE = sizeof(struct NexCoreConfig),
+}
+
+/* PH-11：求值模式。缺省 0 保持表达式语义（`{id:1}` 是对象字面量）。 */
+pub enum NxEvalMode {
+    NEXCORE_EVAL_EXPRESSION = 0,
+    NEXCORE_EVAL_PROGRAM = 1,
 }
 
 pub int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out);
