@@ -644,6 +644,55 @@ else
   echo "⑯ native provider: N/A (NEXCORE_JS=null：无引擎，不计通过)"
 fi
 
+echo "== 17. 静态归档（PH-10 E5：libnexcore.a 可独立链接） =="
+ARCHIVE="$BIN/libnexcore.a"
+if [ ! -f "$ARCHIVE" ]; then
+  echo "⑰ FAIL: $ARCHIVE 不存在（构建未产出静态归档）" >&2
+  exit 1
+fi
+want=$(cd "$IMPL" && ls *.c | sed 's/\.c$/.o/' | sort | tr '\n' ' ')
+got=$(ar t "$ARCHIVE" | grep -v '^__.SYMDEF' | grep -v '^$' | sort | tr '\n' ' ')
+if [ "$want" != "$got" ]; then
+  echo "⑰ FAIL: 归档对象集合与 build/impl/*.c 不符" >&2
+  echo "  want: $want" >&2
+  echo "  got : $got" >&2
+  exit 1
+fi
+for s in create set_sink send drain shutdown free stat; do
+  nm -g --defined-only "$ARCHIVE" | grep -q "T _nexcore_$s\$" || {
+    echo "⑰ FAIL: 归档缺符号 nexcore_$s" >&2
+    exit 1
+  }
+done
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/smoke.c "$ARCHIVE" $QJS_LIB -lm -lpthread -o "$BIN/smoke_archive" || {
+  echo "⑰ FAIL: 只链 libnexcore.a 无法链接 tests/smoke.c" >&2
+  exit 1
+}
+extra=$(otool -L "$BIN/smoke_archive" | awk 'NR>1{print $1}' | grep -v '^/usr/lib/libSystem' | grep -v '^$' || true)
+if [ -n "$extra" ]; then
+  echo "⑰ FAIL: 静态归档带出了额外动态依赖：$extra" >&2
+  exit 1
+fi
+cp "$ARCHIVE" /tmp/nx_archive_neg.a
+ar d /tmp/nx_archive_neg.a NexCore.o
+if "$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/smoke.c /tmp/nx_archive_neg.a $QJS_LIB -lm -lpthread -o /tmp/nx_archive_neg >/dev/null 2>&1; then
+  echo "⑰ FAIL: 去掉 NexCore.o 后仍能链接，判据空转" >&2
+  exit 1
+fi
+if [ "$JS_BACKEND" = "quickjs" ]; then
+  "$BIN/smoke_archive" | grep -q "SMOKE OK" || {
+    echo "⑰ FAIL: 归档链接版 smoke 未跑出 SMOKE OK" >&2
+    exit 1
+  }
+  echo "⑰ archive: PASS（对象集合 / 7 符号 / 仅 libSystem / 运行 SMOKE OK / 缺对象必红）"
+else
+  echo "⑰ archive: N/A-RUN (NEXCORE_JS=null：可链接，JS 语义不在本档覆盖)"
+fi
+
 echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 # ---------------------------------------------------------------------------
 # 检查项编号表（新增项追加，不复用旧号）

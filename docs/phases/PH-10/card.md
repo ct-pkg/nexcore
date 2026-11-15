@@ -216,3 +216,4 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | PH10-T2 | `d1c483b` | 在副本里把 `pump` 改成 `return 0;` 后跑 `NEXCORE_JS=quickjs bash tools/check.sh` | `FAIL: microtasks not pumped (expect hits=1)` / `⑮ FAIL: 微任务未被泵到（Promise 回调不可见）` | 1 | 2026-11-15 |
 | PH10-T3 | `aed0cda` | `cc -std=c99 -Wall -Wextra -Werror -I build/abi tests/native_provider.c build/bin/libnexcore.dylib -o /tmp/np_base` | `error: no member named 'native_call' in 'struct NexCoreConfig'`（native_user/native_names 同） | 1 | 2026-11-15 |
 | PH10-T4 | `9059e33` | 副本里把 `native_call = cfg->native_call;` 改成 `native_call = 0;` 后跑 `NEXCORE_JS=quickjs bash tools/check.sh` | `A1 FAIL: Shell.echo(7) -> <none>` / `⑯ FAIL: 原生 Provider 未生效或越界读了尾字段` | 1 | 2026-11-15 |
+| PH10-T5 | `799a4e3` | 只加 ⑰（不加 `ar` 目标）后跑 `NEXCORE_JS=quickjs bash tools/check.sh` | `⑰ FAIL: build/bin/libnexcore.a 不存在（构建未产出静态归档）` | 1 | 2026-11-15 |
