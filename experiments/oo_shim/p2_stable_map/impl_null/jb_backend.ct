@@ -1,0 +1,29 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+import jb_backend;
+
+void * js_backend_open(int32_t cap)
+{
+    (void)cap;
+    return malloc(1);
+}
+
+int32_t js_backend_eval(void * h, const char * src, int32_t len)
+{
+    (void)h;
+    (void)src;
+    (void)len;
+    return -1;
+}
+
+int32_t js_backend_turns()
+{
+    return 0;
+}
+
+int32_t js_backend_close(void * h)
+{
+    free(h);
+    return 0;
+}

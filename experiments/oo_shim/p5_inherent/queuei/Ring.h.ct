@@ -1,0 +1,34 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+namespace queuei;
+
+/* 具体类型 + 固有方法：单一实现，不需要多态，不需要 trait/vtable。
+ * 注意：0.44.2 上固有方法必须带函数体，不能只写原型。 */
+pub struct Ring {
+    int32_t count;
+}
+
+impl Ring {
+    pub static void * open(int32_t capacity)
+    {
+        struct Ring *r = malloc(sizeof(struct Ring));
+
+        (void)capacity;
+        r->count = 0;
+        return r;
+    }
+
+    pub static int32_t depth(void * handle)
+    {
+        struct Ring *r = handle;
+
+        return r->count;
+    }
+
+    pub static int32_t close(void * handle)
+    {
+        free(handle);
+        return 0;
+    }
+}

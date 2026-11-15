@@ -1,0 +1,18 @@
+/* tier=quickjs: 同一 import 路径、同一 trait 名，recipe 指向另一组 C 符号 */
+#include "jb_qjs.h"
+
+namespace jb;
+
+pub trait Backend {
+    void * open(int32_t cap);
+    int32_t eval(void * h, const char * src, int32_t len);
+    int32_t turns();
+    int32_t close(void * h);
+}
+
+map trait Backend for namespace jb {
+    open(cap) -> jb_qjs_open(cap);
+    eval(h, src, len) -> jb_qjs_eval(h, src, len);
+    turns() -> jb_qjs_turns();
+    close(h) -> jb_qjs_close(h);
+}

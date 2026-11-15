@@ -1,0 +1,58 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+/* 目标形态：NexCore 内部句柄持有「接口值」字段，实现按运行期条件选择。
+ * 关键点：接口值只在内部 struct 里，不进 ABI 结构（D-12）。 */
+
+trait Backend {
+    void * open(int32_t cap);
+    int32_t eval(void * h, const char * src, int32_t len);
+    int32_t turns();
+    int32_t close(void * h);
+}
+
+struct NullB {
+    int32_t tag;
+} use Backend;
+
+struct QjsB {
+    int32_t tag;
+} use Backend;
+
+impl Backend for NullB {
+    void * open(int32_t cap) { (void)cap; self->tag = 1; return self; }
+    int32_t eval(void * h, const char * src, int32_t len) { (void)h; (void)src; (void)len; return -1; }
+    int32_t turns() { return 0; }
+    int32_t close(void * h) { (void)h; return 0; }
+}
+
+impl Backend for QjsB {
+    void * open(int32_t cap) { (void)cap; self->tag = 2; return self; }
+    int32_t eval(void * h, const char * src, int32_t len) { (void)h; (void)src; (void)len; return 42; }
+    int32_t turns() { return 1; }
+    int32_t close(void * h) { (void)h; return 0; }
+}
+
+struct Handle {
+    int32_t magic;
+    Backend js;
+};
+
+int main(int argc, char ** argv)
+{
+    struct NullB n;
+    struct QjsB q;
+    struct Handle * h = malloc(sizeof(struct Handle));
+
+    n.tag = 0;
+    q.tag = 0;
+    if (argc > 1 && argv[1][0] == 'q') {
+        h->js = q;
+    } else {
+        h->js = n;
+    }
+    printf("turns=%d eval=%d\n", h->js.turns(), h->js.eval(0, "x", 1));
+    h->js.close(0);
+    free(h);
+    return 0;
+}

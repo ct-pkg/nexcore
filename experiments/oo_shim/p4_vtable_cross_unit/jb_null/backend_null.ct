@@ -1,0 +1,25 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+import jbif::jbif;
+
+
+
+struct NullB {
+    int32_t tag;
+} use Backend;
+
+impl Backend for NullB {
+    void * open(int32_t cap) { (void)cap; return self; }
+    int32_t eval(void * h, const char * src, int32_t len) { (void)h; (void)src; (void)len; return -1; }
+    int32_t turns() { return 0; }
+    int32_t close(void * h) { (void)h; return 0; }
+}
+
+/* 堆对象装箱：返回接口值时 self 指向堆，不悬垂。 */
+Backend jbif_backend_create(void)
+{
+    struct NullB *p = malloc(sizeof(struct NullB));
+    p->tag = 1;
+    return p;
+}

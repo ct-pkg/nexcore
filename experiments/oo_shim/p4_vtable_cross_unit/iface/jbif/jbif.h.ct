@@ -1,0 +1,19 @@
+#include <stdint.h>
+
+namespace jbif;
+
+/* 接口 + 持有接口值的句柄都在稳定头单元里发布。 */
+pub trait Backend {
+    void * open(int32_t cap);
+    int32_t eval(void * h, const char * src, int32_t len);
+    int32_t turns();
+    int32_t close(void * h);
+}
+
+pub struct Handle {
+    int32_t magic;
+    Backend js;
+}
+
+/* 工厂只声明；实现单元每档提供同一 C 符号。 */
+pub Backend backend_create(void);

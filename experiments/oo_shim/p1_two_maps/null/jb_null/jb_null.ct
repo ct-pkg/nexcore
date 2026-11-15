@@ -1,0 +1,31 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+import jb_null;
+
+namespace jb_null;
+
+void * open(int32_t cap)
+{
+    (void)cap;
+    return malloc(1);
+}
+
+int32_t eval(void * h, const char * src, int32_t len)
+{
+    (void)h;
+    (void)src;
+    (void)len;
+    return -1;
+}
+
+int32_t turns()
+{
+    return 0;
+}
+
+int32_t close(void * h)
+{
+    free(h);
+    return 0;
+}

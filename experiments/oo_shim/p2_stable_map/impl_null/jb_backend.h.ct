@@ -1,0 +1,7 @@
+#include <stdint.h>
+
+/* 无 namespace：导出的 C 名就是写的名字，两档可以各自提供同一组符号 */
+pub void * js_backend_open(int32_t cap);
+pub int32_t js_backend_eval(void * h, const char * src, int32_t len);
+pub int32_t js_backend_turns();
+pub int32_t js_backend_close(void * h);

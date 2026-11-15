@@ -1,0 +1,14 @@
+#include <stdio.h>
+#include <stdint.h>
+
+import jb::jb_map;
+
+int main(void)
+{
+    void * h = jb::Backend.open(4);
+    int32_t rc = jb::Backend.eval(h, "1+1", 3);
+
+    printf("eval=%d turns=%d\n", rc, jb::Backend.turns());
+    jb::Backend.close(h);
+    return 0;
+}

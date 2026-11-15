@@ -1,0 +1,24 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+struct Ring {
+    int32_t count;
+}
+
+impl Ring {
+    static void * open(int32_t capacity)
+    {
+        struct Ring *r = malloc(sizeof(struct Ring));
+        (void)capacity;
+        r->count = 0;
+        return r;
+    }
+    static int32_t depth(void * h) { struct Ring *r = h; return r->count; }
+}
+
+int main(void)
+{
+    void *h = Ring.open(4);
+    printf("depth=%d\n", Ring.depth(h));
+    return 0;
+}

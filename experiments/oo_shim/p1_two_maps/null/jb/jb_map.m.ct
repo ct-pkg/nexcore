@@ -1,0 +1,18 @@
+/* tier=null: static trait + namespace-host SHIM */
+#include "jb_null.h"
+
+namespace jb;
+
+pub trait Backend {
+    void * open(int32_t cap);
+    int32_t eval(void * h, const char * src, int32_t len);
+    int32_t turns();
+    int32_t close(void * h);
+}
+
+map trait Backend for namespace jb {
+    open(cap) -> jb_null_open(cap);
+    eval(h, src, len) -> jb_null_eval(h, src, len);
+    turns() -> jb_null_turns();
+    close(h) -> jb_null_close(h);
+}

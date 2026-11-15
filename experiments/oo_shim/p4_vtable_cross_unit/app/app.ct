@@ -1,0 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+import jbif::jbif;
+
+int main(void)
+{
+    struct Handle *h = malloc(sizeof(struct Handle));
+
+    h->magic = 7;
+    h->js = jbif::backend_create();
+    printf("turns=%d eval=%d magic=%d\n", h->js.turns(), h->js.eval(0, "x", 1), h->magic);
+    free(h);
+    return 0;
+}

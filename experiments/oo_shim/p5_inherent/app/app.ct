@@ -1,0 +1,12 @@
+#include <stdio.h>
+
+import queuei::Ring;
+
+int main(void)
+{
+    void *h = Ring.open(4);
+
+    printf("depth=%d\n", Ring.depth(h));
+    Ring.close(h);
+    return 0;
+}

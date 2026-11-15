@@ -1,0 +1,8 @@
+#include <stdint.h>
+
+namespace jb_null;
+
+pub void * open(int32_t cap);
+pub int32_t eval(void * h, const char * src, int32_t len);
+pub int32_t turns();
+pub int32_t close(void * h);
