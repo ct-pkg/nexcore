@@ -68,6 +68,32 @@ rc=$?
 set -e
 [ "$rc" -eq 130 ] || fail "SIGINT 应 rc=130，实际 rc=$rc"
 
+# 正例 1f：求值期间 Ctrl-C 必须真的停下来（PH-13 K-4）
+printf 'while(true){}\n' >"$TMP/forever.nexjs"
+"$NEX" "$TMP/forever.nexjs" >/dev/null 2>&1 &
+pid=$!
+sleep 0.1
+kill -INT "$pid" 2>/dev/null || true
+sleep 1.5
+if kill -0 "$pid" 2>/dev/null; then
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  fail "求值期间 SIGINT 未中断（进程 1.5s 后仍存活）"
+fi
+set +e
+wait "$pid"
+rc=$?
+set -e
+[ "$rc" -eq 130 ] || fail "求值中断应 rc=130，实际 rc=$rc"
+
+# 正例 1g：预算上限（NEX_TIMEOUT_MS）
+set +e
+err="$(NEX_TIMEOUT_MS=200 "$NEX" "$TMP/forever.nexjs" 2>&1 >/dev/null)"
+rc=$?
+set -e
+[ "$rc" -eq 1 ] || fail "预算超时应 rc=1，实际 rc=$rc"
+printf '%s' "$err" | grep -q "timeout" || fail "预算超时 stderr 无 timeout：$err"
+
 # 正例 2：shebang 直跑（内核传 argv，不依赖安装到 PATH）
 printf '#!%s\nvar b=2; b+1\n' "$NEX" >"$TMP/shebang.nexjs"
 chmod +x "$TMP/shebang.nexjs"
