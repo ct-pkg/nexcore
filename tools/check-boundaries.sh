@@ -56,6 +56,28 @@ for dir in "${TARGETS[@]}"; do
       END { exit (bad > 0 ? 1 : 0) }
     ' "$f" || echo x >>"$TMP_COUNT"
   done < <(find "$dir" -name '*.ct' -type f | sort)
+
+  # 4. hosts/ 下的 C 宿主：只许系统头与公开 ABI 头（PH-10 E6）。
+  case "$dir" in
+    */hosts)
+      while IFS= read -r f; do
+        scanned=$((scanned + 1))
+        rel="${f#"$ROOT"/}"
+        grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*"' "$f" |
+          while IFS=: read -r ln text; do
+            inc="$(printf '%s' "$text" | sed -E 's/.*"([^"]*)".*/\1/')"
+            case "$inc" in
+              NexCore.h) : ;;
+              *)
+                printf '%s:%s: hosts 只许 include 公开 ABI 头，禁止：%s\n' \
+                  "$rel" "$ln" "$inc" >&2
+                echo x >>"$TMP_COUNT"
+                ;;
+            esac
+          done || true
+      done < <(find "$dir" \( -name '*.c' -o -name '*.h' \) -type f | sort)
+      ;;
+  esac
 done
 
 count=$(wc -l <"$TMP_COUNT" | tr -d ' ')
