@@ -673,6 +673,30 @@ if [ "$want" != "$got" ]; then
   echo "  got : $got" >&2
   exit 1
 fi
+# K-1（PH-12）：档位错配必须可判定。断言对象是归档成员本身，不是 build/impl 目录。
+#   quickjs 档：必须有实现对象；js_backend.o 只能是 header stub（不得有 T）。
+#   null 档：不得收引擎实现对象。
+if [ "$JS_BACKEND" = "quickjs" ]; then
+  ar t "$ARCHIVE" | grep -qx 'js_backend_quickjs.o' || {
+    echo "⑰ FAIL: quickjs 档归档缺 js_backend_quickjs.o（档位错配）" >&2
+    exit 1
+  }
+  rm -f /tmp/nx_stub.o
+  ar p "$ARCHIVE" js_backend.o > /tmp/nx_stub.o 2>/dev/null || true
+  if [ -s /tmp/nx_stub.o ]; then
+    stub_t=$(nm -g --defined-only /tmp/nx_stub.o 2>/dev/null | awk '$2=="T"{print $3}' || true)
+    if [ -n "$stub_t" ]; then
+      echo "⑰ FAIL: js_backend.o 是 header stub，不得定义 T 符号（档位错配）：" >&2
+      printf '  %s\n' $stub_t >&2
+      exit 1
+    fi
+  fi
+else
+  if ar t "$ARCHIVE" | grep -qx 'js_backend_quickjs.o'; then
+    echo "⑰ FAIL: null 档归档含 js_backend_quickjs.o（档位错配）" >&2
+    exit 1
+  fi
+fi
 for s in create set_sink send drain shutdown free stat; do
   nm -g --defined-only "$ARCHIVE" | grep -q "T _nexcore_$s\$" || {
     echo "⑰ FAIL: 归档缺符号 nexcore_$s" >&2
@@ -720,7 +744,7 @@ if [ "$JS_BACKEND" = "quickjs" ]; then
     echo "⑰ FAIL: 归档链接版 smoke 未跑出 SMOKE OK" >&2
     exit 1
   }
-  echo "⑰ archive: PASS（对象集合 / 7 符号 / 仅 libSystem / 运行 SMOKE OK / 缺对象必红）"
+  echo "⑰ archive: PASS（对象集合 / 档位 / 7 符号 / 仅 libSystem / 运行 SMOKE OK / 缺对象必红）"
 else
   echo "⑰ archive: N/A-RUN (NEXCORE_JS=null：可链接，JS 语义不在本档覆盖)"
 fi
