@@ -25,6 +25,13 @@ static void on_sigint(int sig)
     g_sigint = 1;
 }
 
+/* 库在求值循环里轮询这个回调；返回非 0 即中止当前求值（K-4）。 */
+static int32_t poll_interrupt(void *user)
+{
+    (void)user;
+    return g_sigint != 0 ? 1 : 0;
+}
+
 extern char **environ;
 
 struct Buf {
@@ -287,6 +294,17 @@ int main(int argc, char **argv)
     cfg.max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
     cfg.max_pending = NEXCORE_DEFAULT_MAX_PENDING;
     cfg.eval_mode = NEXCORE_EVAL_PROGRAM;
+    /*
+     * 预算默认不限（0）：本地脚本被 5s 掐断会很意外；需要上限时用 NEX_TIMEOUT_MS。
+     * 中断钩子始终接线，Ctrl-C 才能停住长求值。
+     */
+    {
+        const char *timeout_env = getenv("NEX_TIMEOUT_MS");
+
+        cfg.default_timeout_ms = timeout_env != 0 ? (uint32_t)strtoul(timeout_env, 0, 10) : 0;
+    }
+    cfg.interrupt_call = poll_interrupt;
+    cfg.interrupt_user = 0;
     cfg.bootstrap_js = bootstrap;
     cfg.bootstrap_len = strlen(bootstrap);
     cfg.native_call = on_native;
