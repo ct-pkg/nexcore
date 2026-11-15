@@ -12,6 +12,11 @@
 #   * 新增检查项使用新编号，不复用旧编号；编号表见文件末尾注释。
 #
 # 检查项：0 / ①a ①b ①c / ②a ②b ②c / ③ / ④ / ⑤a ⑤b / ⑥ / ⑦ / ⑧ / ⑨ / smoke
+#
+# 用法：
+#   bash tools/check.sh        全量检查（上面的检查项）
+#   bash tools/check.sh g0     规约纳管门禁（AGENTS 6.4 / 11.5），只读，不构建
+#   bash tools/check.sh g1..   未实现，退出码 2（不能跑的门禁不许装绿）
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -24,6 +29,86 @@ BIN=build/bin
 QJS=experiments/third_party/quickjs
 CC=${CC:-cc}
 CFLAGS=(-std=c99 -Wall -Wextra -Werror -Werror=implicit-function-declaration -Werror=incompatible-pointer-types)
+
+# ---------------------------------------------------------------------------
+# g0 —— 规约纳管（AGENTS 6.4 / 11.5）。只读仓库文件，不构建、不写 build/。
+# ---------------------------------------------------------------------------
+SPEC_BIN="${SPEC_BIN:-/Users/samxx/trae-ws/.ai-engineering/bin/sync-agents.sh}"
+SPEC_COPY=docs/spec/ai-coding-workflow.md
+
+g0_fail() { printf 'g0 FAIL: %s\n' "$1" >&2; exit 1; }
+
+run_g0() {
+  local head_line version sha actual want have rows
+
+  [ -f AGENTS.md ] || g0_fail "缺 AGENTS.md"
+
+  # 1. 生成块头与块尾
+  head_line="$(grep -m1 '^<!-- spec:begin ' AGENTS.md || true)"
+  [ -n "$head_line" ] || g0_fail "AGENTS.md 缺生成块头（<!-- spec:begin … -->）"
+  grep -q '^<!-- spec:end -->' AGENTS.md || g0_fail "AGENTS.md 缺块尾 <!-- spec:end -->"
+
+  version="$(printf '%s\n' "$head_line" | sed -n 's/.*version=\([0-9][0-9.]*\).*/\1/p')"
+  sha="$(printf '%s\n' "$head_line" | sed -n 's/.*sha256=\([0-9a-f]\{64\}\).*/\1/p')"
+  [ -n "$version" ] || g0_fail "块头缺 version="
+  [ -n "$sha" ] || g0_fail "块头缺 sha256="
+
+  # 2. 全文副本存在且 sha256 等于块头
+  [ -f "$SPEC_COPY" ] || g0_fail "缺全文副本 $SPEC_COPY"
+  actual="$(shasum -a 256 "$SPEC_COPY" | awk '{print $1}')"
+  [ "$actual" = "$sha" ] || g0_fail "全文副本 sha256 与块头不等（块头=${sha} 实算=${actual}）"
+
+  # 3. 块体与 sync-agents.sh --print 逐字相同；工具缺失时告警但不冒充通过
+  if [ -f "$SPEC_BIN" ]; then
+    want="$(mktemp)"
+    have="$(mktemp)"
+    bash "$SPEC_BIN" --print >"$want"
+    awk '/^<!-- spec:begin/ { inb = 1 } inb { print } inb && /^<!-- spec:end/ { exit }' AGENTS.md >"$have"
+    if ! cmp -s "$want" "$have"; then
+      diff -u "$want" "$have" >&2 || true
+      rm -f "$want" "$have"
+      g0_fail "块体与 sync-agents.sh --print 不逐字相同（块被手改或未同步）"
+    fi
+    rm -f "$want" "$have"
+  else
+    printf 'g0 WARN: 未找到 %s，跳过「块体逐字」一项\n' "$SPEC_BIN" >&2
+  fi
+
+  # 4. 块外三段（块内同名小节不算）
+  for h in '### 0.1 本项目实例化' '### 0.2 话术路由' '### 0.3 偏离项'; do
+    grep -qxF "$h" AGENTS.md || g0_fail "缺块外小节：$h"
+  done
+
+  # 5. 实例化表 8 行（表头 + 分隔线 + 8 行 = 10）
+  rows="$(awk '
+      /^### 0\.1 / { inb = 1; next }
+      /^### 0\.2 / { inb = 0 }
+      inb && /^\|/ { n++ }
+      END { print n + 0 }
+  ' AGENTS.md)"
+  [ "$rows" -ge 10 ] || g0_fail "实例化表只有 $((rows - 2)) 行，需 8 行"
+
+  # 6. 版本落点非空，且落点文件里确有状态行
+  grep -q '^| 版本落点 | [^|]' AGENTS.md || g0_fail "实例化表「版本落点」为空"
+  grep -q '^- 状态：v[0-9]' docs/README.md || g0_fail "docs/README.md 缺「- 状态：v<版本>」行（版本落点落空）"
+
+  # 7. 会话地图
+  [ -f docs/session-map.md ] || g0_fail "缺 docs/session-map.md"
+
+  printf 'ok g0 (block %s/%s, landing 3 段, 8 行, session-map, 版本落点)\n' "$version" "${sha:0:8}"
+}
+
+case "${1:-}" in
+"" | all) ;;
+g0)
+  run_g0
+  exit 0
+  ;;
+*)
+  printf 'usage: bash tools/check.sh [g0]（g1..g9 未实现）\n' >&2
+  exit 2
+  ;;
+esac
 
 rm -rf "$ABI" "$IMPL" "$BIN"
 mkdir -p "$ABI" "$IMPL" "$BIN"
