@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <time.h>
 
 import NexCore;
 import queue::queue_map;
@@ -18,11 +20,13 @@ import js_backend::js_backend_map;
 
 #define NEXCORE_HANDLE_MAGIC 0x4E584331u
 #define NEXCORE_STATE_LIVE 0
-#define NEXCORE_STATE_SHUT 1
+#define NEXCORE_STATE_STOPPING 1
+#define NEXCORE_STATE_SHUT 2
 
 /* queue 单元的返回码；跨单元只通过约定值判断，不共享枚举。 */
 #define NX_QUEUE_FULL -2
 #define NX_QUEUE_EMPTY -4
+#define NX_QUEUE_CLOSED -5
 
 /* 设计 §6.4 已分配、骨架尚未实现的统计键号：只在本实现单元内使用，不导出。 */
 #define NX_STAT_RESERVED_FIRST 10
@@ -58,6 +62,9 @@ struct NexCoreHandleImpl {
     uint32_t max_message_bytes;
     int32_t last_error;
     int32_t eval_mode;
+    /* PH-15 T2：生命周期锁保护 state 迁移与单 drain 准入。 */
+    pthread_mutex_t lifecycle_lock;
+    int32_t drain_active;
 }
 
 int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
@@ -134,6 +141,8 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         queue::Ring.close(ob);
         return NX_E_INTERNAL;
     }
+    pthread_mutex_init(&impl->lifecycle_lock, 0);
+    impl->drain_active = 0;
 
     /* bootstrap_js 在这里第一次被真正解引用：交给 JS 后端（P1 为空实现）。 */
     js = js_backend::Backend.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len,
@@ -144,6 +153,7 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     if (js == 0) {
         queue::Ring.close(q);
         queue::Ring.close(ob);
+        pthread_mutex_destroy(&impl->lifecycle_lock);
         free(impl);
         return NX_E_INTERNAL;
     }
@@ -156,6 +166,7 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         js_backend::Backend.shutdown(js);
         queue::Ring.close(q);
         queue::Ring.close(ob);
+        pthread_mutex_destroy(&impl->lifecycle_lock);
         free(impl);
         return NX_E_SCHEMA_MISMATCH;
     }
@@ -361,22 +372,93 @@ static void deliver_outbox(struct NexCoreHandleImpl *impl, int32_t *out_count)
     if (out_count != 0) *out_count = delivered;
 }
 
+/* PH-15 T2：drain 的超时预算用单调时钟，避免墙钟跳变。 */
+static int64_t nx_monotonic_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
+/*
+ * PH-15 T2：drain 支持 -1/0/>0 三种等待，且同一句柄只允许一个 drain。
+ *
+ * 准入先于等待：drain_active 由生命周期锁保护，第二个并发调用立即拿
+ * NX_E_THREAD；所有退出路径都在函数末尾清标志。
+ * 等待循环每次唤醒都重查 state：进入 STOPPING/SHUT 立即返回
+ * NX_E_SHUTDOWN 且 *out_count=0；有数据则处理并投递后返回。
+ */
 int32_t nexcore_drain(NexCoreHandle h, int32_t max_wait_ms, int32_t *out_count)
 {
     struct NexCoreHandleImpl *impl;
+    int32_t delivered;
+    int32_t n;
+    int32_t rc;
+    int32_t state;
+    int32_t left;
+    int64_t deadline;
+    int64_t now;
 
     if (h == 0) return NX_E_INVALID_HANDLE;
     impl = h;
     if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
-    if (impl->state != NEXCORE_STATE_LIVE) return NX_E_SHUTDOWN;
-    /*
-     * 同步阶段：drain 在调用线程把 inbox 排空，空队列立即返回。
-     * max_wait_ms 只对未来阻塞式出队生效，这里不消费它。
-     */
-    (void)max_wait_ms;
-    pump_inbox(impl);
-    deliver_outbox(impl, out_count);
-    return NX_OK;
+    if (out_count != 0) *out_count = 0;
+
+    pthread_mutex_lock(&impl->lifecycle_lock);
+    if (impl->state != NEXCORE_STATE_LIVE) {
+        pthread_mutex_unlock(&impl->lifecycle_lock);
+        return NX_E_SHUTDOWN;
+    }
+    if (impl->drain_active != 0) {
+        pthread_mutex_unlock(&impl->lifecycle_lock);
+        return NX_E_THREAD;
+    }
+    impl->drain_active = 1;
+    pthread_mutex_unlock(&impl->lifecycle_lock);
+
+    delivered = 0;
+    rc = NX_OK;
+    deadline = 0;
+    if (max_wait_ms > 0) deadline = nx_monotonic_ms() + max_wait_ms;
+
+    for (;;) {
+        pthread_mutex_lock(&impl->lifecycle_lock);
+        state = impl->state;
+        pthread_mutex_unlock(&impl->lifecycle_lock);
+        if (state != NEXCORE_STATE_LIVE) {
+            rc = NX_E_SHUTDOWN;
+            delivered = 0;
+            break;
+        }
+        if (queue::Ring.depth(impl->queue) > 0) {
+            pump_inbox(impl);
+            deliver_outbox(impl, &n);
+            delivered = delivered + n;
+            break;
+        }
+        if (max_wait_ms == 0) break;
+        left = -1;
+        if (max_wait_ms > 0) {
+            now = nx_monotonic_ms();
+            left = (int32_t)(deadline - now);
+            if (left <= 0) break;
+        }
+        rc = queue::Ring.wait(impl->queue, left);
+        if (rc == NX_QUEUE_CLOSED) {
+            rc = NX_E_SHUTDOWN;
+            delivered = 0;
+            break;
+        }
+        if (rc == NX_QUEUE_EMPTY) break;
+        rc = NX_OK;
+    }
+
+    pthread_mutex_lock(&impl->lifecycle_lock);
+    impl->drain_active = 0;
+    pthread_mutex_unlock(&impl->lifecycle_lock);
+    if (out_count != 0) *out_count = delivered;
+    return rc;
 }
 
 int32_t nexcore_shutdown(NexCoreHandle h)
@@ -386,16 +468,27 @@ int32_t nexcore_shutdown(NexCoreHandle h)
     if (h == 0) return NX_E_INVALID_HANDLE;
     impl = h;
     if (impl->magic != NEXCORE_HANDLE_MAGIC) return NX_E_INVALID_HANDLE;
-    if (impl->state == NEXCORE_STATE_SHUT) return NX_OK;
 
-    /* 关闭序列：停收 → 排空 inbox 并投递 → 释放 JS 运行时。 */
-    impl->state = NEXCORE_STATE_SHUT;
+    pthread_mutex_lock(&impl->lifecycle_lock);
+    if (impl->state == NEXCORE_STATE_SHUT) {
+        pthread_mutex_unlock(&impl->lifecycle_lock);
+        return NX_OK;
+    }
+    /* 先置 STOPPING（send 从此拒绝），再粘性唤醒阻塞中的 drain。 */
+    impl->state = NEXCORE_STATE_STOPPING;
+    pthread_mutex_unlock(&impl->lifecycle_lock);
+    queue::Ring.close_input(impl->queue);
+
+    /* 关闭序列：排空 inbox 并投递 → 释放 JS 运行时。 */
     pump_inbox(impl);
     deliver_outbox(impl, 0);
     if (impl->js != 0) {
         js_backend::Backend.shutdown(impl->js);
         impl->js = 0;
     }
+    pthread_mutex_lock(&impl->lifecycle_lock);
+    impl->state = NEXCORE_STATE_SHUT;
+    pthread_mutex_unlock(&impl->lifecycle_lock);
     /*
      * 同步阶段排空不会超时，因此 NX_E_CLOSE_TIMEOUT 没有可达分支；
      * S6 引入 worker 线程与关闭预算后再接这里。
@@ -422,6 +515,7 @@ int32_t nexcore_free(NexCoreHandle h)
     }
     queue::Ring.close(impl->queue);
     impl->magic = 0;
+    pthread_mutex_destroy(&impl->lifecycle_lock);
     free(impl);
     return NX_OK;
 }

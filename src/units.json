@@ -4,7 +4,7 @@
       "namespace": "queue",
       "trait": "Ring",
       "source": "queue/queue.h.ct",
-      "methods": ["open", "push", "pop", "depth", "wait", "wake_all", "close"]
+      "methods": ["open", "push", "pop", "depth", "wait", "wake_all", "close_input", "close"]
     },
     {
       "namespace": "js_backend",

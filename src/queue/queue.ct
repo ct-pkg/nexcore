@@ -152,7 +152,7 @@ int32_t wait(void *handle, int32_t timeout_ms)
     return rc;
 }
 
-/* 只唤醒等待者，不释放数据；由 shutdown 与 send 在锁外调用。 */
+/* 只唤醒等待者，不释放数据；由 send 在锁外调用。 */
 void wake_all(void *handle)
 {
     struct Ring *r;
@@ -160,6 +160,25 @@ void wake_all(void *handle)
     if (handle == 0) return;
     r = handle;
     pthread_cond_broadcast(&r->cond);
+}
+
+/*
+ * 粘性唤醒：置 closed 后广播，不清空数据。
+ * shutdown 不改变 count，单靠 wake_all 会漏掉「检查 count → 进入等待」之间的
+ * 广播；closed 是持久谓词，wait 之后一律返回 -5，丢失窗口不再存在。
+ * pop 仍可取走已入队项，释放仍由 close 负责。
+ */
+int32_t close_input(void *handle)
+{
+    struct Ring *r;
+
+    if (handle == 0) return NXQ_ERR_ARG;
+    r = handle;
+    pthread_mutex_lock(&r->lock);
+    r->closed = 1;
+    pthread_cond_broadcast(&r->cond);
+    pthread_mutex_unlock(&r->lock);
+    return 0;
 }
 
 int32_t depth(void *handle)

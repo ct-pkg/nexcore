@@ -29,4 +29,10 @@ pub int32_t wait(void *handle, int32_t timeout_ms);
 /* 唤醒所有 wait 等待者，不释放数据；只做 cond_broadcast。 */
 pub void wake_all(void *handle);
 
+/*
+ * 停止接收：置 closed 后广播唤醒所有 wait 等待者（粘性，之后 wait 返回 -5），
+ * 不清空已入队数据。shutdown 用它保证阻塞中的 drain 不会丢唤醒。
+ */
+pub int32_t close_input(void *handle);
+
 pub int32_t close(void *handle);

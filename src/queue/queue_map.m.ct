@@ -12,6 +12,7 @@ pub trait Ring {
     int32_t depth(void * handle);
     int32_t wait(void * handle, int32_t timeout_ms);
     void wake_all(void * handle);
+    int32_t close_input(void * handle);
     int32_t close(void * handle);
 }
 
@@ -22,5 +23,6 @@ map trait Ring for namespace queue {
     depth(handle) -> queue_depth(handle);
     wait(handle, timeout_ms) -> queue_wait(handle, timeout_ms);
     wake_all(handle) -> queue_wake_all(handle);
+    close_input(handle) -> queue_close_input(handle);
     close(handle) -> queue_close(handle);
 }
