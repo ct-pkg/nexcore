@@ -631,6 +631,19 @@ else
   echo "⑮ microtask pump: N/A (NEXCORE_JS=null：无引擎，不计通过)"
 fi
 
+echo "== 16. 原生 Provider 注册（PH-10 E3：注册可用 + 向后兼容） =="
+# 判据：注册名可调用且 JSON 往返；未注册名与回调错误都抛错；
+# 老 struct_size（==MIN）即使尾部是垃圾也不得被读（否则会当函数指针调用）。
+if [ "$JS_BACKEND" = "quickjs" ]; then
+  "$CC" "${CFLAGS[@]}" \
+    -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+    tests/native_provider.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/native_provider"
+  "$BIN/native_provider" || { echo "⑯ FAIL: 原生 Provider 未生效或越界读了尾字段" >&2; exit 1; }
+  echo "⑯ native provider: PASS（注册/未注册/回调错误/老 struct_size 四态）"
+else
+  echo "⑯ native provider: N/A (NEXCORE_JS=null：无引擎，不计通过)"
+fi
+
 echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 # ---------------------------------------------------------------------------
 # 检查项编号表（新增项追加，不复用旧号）
