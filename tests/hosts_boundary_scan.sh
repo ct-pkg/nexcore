@@ -8,10 +8,11 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 probe="$ROOT/hosts/shell/__boundary_probe.ct"
+cprobe="$ROOT/hosts/shell/__probe.c"
 
 mkdir -p "$(dirname "$probe")"
 printf '#if 1\nint x;\n#endif\n' > "$probe"
-trap 'rm -f "$probe"' EXIT
+trap 'rm -f "$probe" "$cprobe"' EXIT
 
 out="$(bash "$ROOT/tools/check-boundaries.sh" 2>&1)"
 rc=$?
@@ -24,6 +25,22 @@ fi
 if ! printf '%s' "$out" | grep -q "__boundary_probe.ct"; then
   echo "FAIL: 返回非 0 但报错里没有 hosts/shell/__boundary_probe.ct"
   printf '%s\n' "$out" | tail -5
+  exit 1
+fi
+rm -f "$probe"
+
+# C 宿主同样受检：只许系统头与公开 ABI 头。
+printf '#include "../../src/NexCore.h"\nint y;\n' > "$cprobe"
+out2="$(bash "$ROOT/tools/check-boundaries.sh" 2>&1)"
+rc2=$?
+if [ "$rc2" -eq 0 ]; then
+  echo "FAIL: C 宿主越界 include 未被拦下（rc=0）"
+  echo "$out2" | tail -3
+  exit 1
+fi
+if ! printf '%s' "$out2" | grep -q "__probe.c"; then
+  echo "FAIL: 返回非 0 但报错里没有 hosts/shell/__probe.c"
+  printf '%s\n' "$out2" | tail -5
   exit 1
 fi
 
