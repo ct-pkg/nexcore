@@ -1,8 +1,8 @@
 # 主张席评审：Shell 宿主「阶段 0」的最小必要集与交付物形态
 
 > 日期：2026-11-15 ｜ 立场：**主张席**（论证四件是最小必要集、每件形态是当前最优）
-> 基线：`HEAD = 9059e33`（评审期间仓库从 `249b178` 前进到 `9059e33`：T1 已落地、T2 已落地、T3 已落地）。本文所有行号以 `9059e33` 为准。
-> 在途：`tools/check.sh` 工作树有未提交改动（T4 的 ⑯），**本文件不引用该改动，也不跑门禁**（§1.3）。
+> 基线：`HEAD = 9059e33`（评审期间仓库从 `249b178` 前进到 `9059e33`：T1/T2/T3 已落地；本文件定稿时 T4 已提交、T5 在途）。本文所有行号以 `9059e33` 为准。
+> 在途：`tools/check.sh` 正在被并行追加门禁（T5），行号会继续漂移；因此凡引用 `check.sh` 处，正文同时给出**断言原文**，用 `grep -n "导出 T 符号应为" tools/check.sh` 之类定位即可。**本文件不引用在途改动，也不跑门禁**（§1.3）。
 > 对象：[裁定](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-shell-host-ruling.md)、[PH-10 卡](file:///Users/samxx/trae-ws/nexcore/docs/phases/PH-10/card.md)、[修订清单](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-shell-host-proposal-revisions.md)。
 > 纪律：只读仓库 + 只写本文件；未改 `src/`、`tools/`、卡片、`abi/` golden、门禁；未 push、未打 tag。
 > 说明：本文件不复述裁定结论，只给判据；每条判断后面都跟文件行号或一段我自己跑出来的输出（附录 A）。
