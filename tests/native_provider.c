@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "NexCore.h"
 
@@ -169,45 +171,72 @@ int main(void)
     if (nexcore_shutdown(h) != NX_OK) return 8;
     if (nexcore_free(h) != NX_OK) return 9;
 
-    /* D：老 struct_size 调用方。尾部填 0xA5，若库越界读会把垃圾当回调指针。 */
+    /* D：老调用方五档（88/96/104/112/120）。每档精确分配 N 字节，且紧贴 PROT_NONE 页，
+     * 任何越界读都会立刻 SIGSEGV——不依赖 ASan，也不依赖「自己块内」的假绿。 */
     {
-        unsigned char *raw = (unsigned char *)malloc(sizeof(struct NexCoreConfig));
-        struct NexCoreConfig *old;
+        static const size_t sizes[5] = { 88, 96, 104, 112, 120 };
+        long ps = sysconf(_SC_PAGESIZE);
+        int i;
 
-        memset(raw, 0xA5, sizeof(struct NexCoreConfig));
-        old = (struct NexCoreConfig *)raw;
-        fill(old);
-        old->struct_size = (uint32_t)NEXCORE_CONFIG_MIN_SIZE;
-        /* 把声明的尾部整段写回垃圾：库若越界读，就会把 0xA5A5… 当回调指针。 */
-        memset(raw + NEXCORE_CONFIG_MIN_SIZE, 0xA5,
-               sizeof(struct NexCoreConfig) - NEXCORE_CONFIG_MIN_SIZE);
+        for (i = 0; i < 5; i++) {
+            size_t n = sizes[i];
+            size_t page = (size_t)ps;
+            unsigned char *base;
+            struct NexCoreConfig *c;
 
-        h = 0;
-        rc = nexcore_create(old, &h);
-        printf("D: old struct_size=%u create rc=%d\n", (unsigned)NEXCORE_CONFIG_MIN_SIZE, (int)rc);
-        if (rc != NX_OK || h == 0) {
-            free(raw);
-            return 10;
+            base = (unsigned char *)mmap(0, page * 2, PROT_READ | PROT_WRITE,
+                                          MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (base == MAP_FAILED) {
+                printf("D%zu FAIL: mmap\n", n);
+                return 10;
+            }
+            mprotect(base + page, page, PROT_NONE);
+            c = (struct NexCoreConfig *)(base + page - n);
+            memset(c, 0, n);
+            c->struct_size = (uint32_t)n;
+            c->abi_version = NEXCORE_ABI_VERSION;
+            c->protocol_version = NEXCORE_PROTOCOL_VERSION;
+            c->default_timeout_ms = NEXCORE_DEFAULT_TIMEOUT_MS;
+            c->max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
+            c->max_pending = NEXCORE_DEFAULT_MAX_PENDING;
+            if (n >= (size_t)((char *)&c->native_names_len - (char *)c) + sizeof(c->native_names_len)) {
+                c->native_call = echo_call;
+                c->native_user = 0;
+                c->native_names = "[\"Shell.echo\"]";
+                c->native_names_len = strlen(c->native_names);
+            }
+
+            h = 0;
+            rc = nexcore_create(c, &h);
+            printf("D%u: struct_size=%u create rc=%d\n", (unsigned)n, (unsigned)n, (int)rc);
+            if (rc != NX_OK || h == 0) {
+                munmap(base, page * 2);
+                return 11;
+            }
+            if (nexcore_set_sink(h, &sink, on_response) != NX_OK) {
+                munmap(base, page * 2);
+                return 12;
+            }
+            if (ask(h, &sink, "typeof Shell", &got) != 0) {
+                printf("D%u FAIL: 无法求值 typeof Shell\n", (unsigned)n);
+                munmap(base, page * 2);
+                return 13;
+            }
+            {
+                const char *want = (n >= 120) ? "\"object\"" : "\"undefined\"";
+                if (strcmp(got, want) != 0) {
+                    printf("D%u FAIL: typeof Shell=%s want=%s\n", (unsigned)n, got, want);
+                    munmap(base, page * 2);
+                    return 14;
+                }
+                printf("D%u: typeof Shell=%s\n", (unsigned)n, got);
+            }
+            if (nexcore_shutdown(h) != NX_OK || nexcore_free(h) != NX_OK) {
+                munmap(base, page * 2);
+                return 15;
+            }
+            munmap(base, page * 2);
         }
-        if (nexcore_set_sink(h, &sink, on_response) != NX_OK) {
-            free(raw);
-            return 11;
-        }
-        if (ask(h, &sink, "typeof Shell", &got) != 0 || strcmp(got, "\"undefined\"") != 0) {
-            printf("D FAIL: old caller sees Shell -> %s\n", got ? got : "<none>");
-            free(raw);
-            return 12;
-        }
-        printf("D: typeof Shell -> %s\n", got);
-        if (nexcore_shutdown(h) != NX_OK) {
-            free(raw);
-            return 13;
-        }
-        if (nexcore_free(h) != NX_OK) {
-            free(raw);
-            return 14;
-        }
-        free(raw);
     }
 
     printf("NATIVE OK\n");

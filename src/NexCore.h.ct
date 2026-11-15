@@ -121,6 +121,12 @@ pub struct NexCoreConfig {
 pub enum NxConfigLayout {
     NEXCORE_CONFIG_V1_SIZE = offsetof(struct NexCoreConfig, bootstrap_len) + sizeof(size_t),
     NEXCORE_CONFIG_MIN_SIZE = NEXCORE_CONFIG_V1_SIZE,
+    /*
+     * PH-10：native_* 四个尾字段全部可用所需的最小 struct_size。
+     * 绑「最后一个字段的偏移 + 宽度」，不绑 sizeof(struct)——后者会随任何一次尾追加漂移，
+     * 让旧宿主静默失去 Provider（红队 A3）。
+     */
+    NEXCORE_CONFIG_NATIVE_SIZE = offsetof(struct NexCoreConfig, native_names_len) + sizeof(size_t),
     NEXCORE_CONFIG_CURRENT_SIZE = sizeof(struct NexCoreConfig),
 }
 

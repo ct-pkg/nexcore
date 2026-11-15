@@ -39,6 +39,7 @@
 [enum NxConfigLayout]
   NEXCORE_CONFIG_V1_SIZE = 72
   NEXCORE_CONFIG_MIN_SIZE = 72
+  NEXCORE_CONFIG_NATIVE_SIZE = 120
   NEXCORE_CONFIG_CURRENT_SIZE = 120
 [typedef NexCoreHandle] size=8 align=8
 [typedef NexCoreSink] size=8 align=8

@@ -80,13 +80,14 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
 
     /*
      * PH-10：原生能力只在 struct_size 覆盖到全部尾字段时才读。
-     * 老调用方（== MIN 或只到 log_user）一律视为「未提供」，不越界读（D-18）。
+     * 阈值绑字段偏移（NEXCORE_CONFIG_NATIVE_SIZE），不绑 CURRENT_SIZE——
+     * 后者随下一次尾追加变大，会让按 120 字节头编译的宿主静默失去 Provider。
      */
     native_call = 0;
     native_user = 0;
     native_names = 0;
     native_names_len = 0;
-    if (cfg->struct_size >= NEXCORE_CONFIG_CURRENT_SIZE) {
+    if (cfg->struct_size >= NEXCORE_CONFIG_NATIVE_SIZE) {
         native_call = cfg->native_call;
         native_user = cfg->native_user;
         native_names = cfg->native_names;
