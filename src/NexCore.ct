@@ -64,6 +64,10 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     void *q;
     void *ob;
     void *js;
+    NexCoreNativeCall native_call;
+    void *native_user;
+    const char *native_names;
+    int32_t native_names_len;
 
     if (out == 0) return NX_E_INVALID_ARGUMENT;
     *out = 0;
@@ -73,6 +77,21 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     if (cfg->protocol_version != NEXCORE_PROTOCOL_VERSION) return NX_E_INVALID_ARGUMENT;
     if (cfg->reserved != 0) return NX_E_INVALID_ARGUMENT;
     if ((cfg->flags & 0xFFFFFFFEu) != 0) return NX_E_INVALID_ARGUMENT;
+
+    /*
+     * PH-10：原生能力只在 struct_size 覆盖到全部尾字段时才读。
+     * 老调用方（== MIN 或只到 log_user）一律视为「未提供」，不越界读（D-18）。
+     */
+    native_call = 0;
+    native_user = 0;
+    native_names = 0;
+    native_names_len = 0;
+    if (cfg->struct_size >= NEXCORE_CONFIG_CURRENT_SIZE) {
+        native_call = cfg->native_call;
+        native_user = cfg->native_user;
+        native_names = cfg->native_names;
+        native_names_len = (int32_t)cfg->native_names_len;
+    }
 
     q = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
     if (q == 0) return NX_E_INTERNAL;
@@ -90,7 +109,9 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     }
 
     /* bootstrap_js 在这里第一次被真正解引用：交给 JS 后端（P1 为空实现）。 */
-    js = js_backend::Backend.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len);
+    js = js_backend::Backend.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len,
+                                  native_call, native_user,
+                                  native_names, native_names_len);
     if (js == 0) {
         queue::Ring.close(q);
         queue::Ring.close(ob);

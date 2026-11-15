@@ -24,7 +24,30 @@ namespace js_backend;
 struct BackendState {
     JSRuntime *rt;
     JSContext *ctx;
+    int32_t (*native_call)(void *user, const char *name, size_t name_len,
+                           const char *args_json, size_t args_len,
+                           char **out_json, size_t *out_len);
+    void *native_user;
+    const char *native_names;
+    int32_t native_names_len;
 }
+
+/*
+ * 原生能力（PH-10）：C 侧只暴露一个 `__nx_native(name, argsJson)`，
+ * 其余挂载逻辑放在 JS 里做——避免在 C 里走 `A.B.C` 路径与取/建对象的样板。
+ * 名字挂完不删除 helper：挂上的闭包捕获了 `__nx_native` 的全局名，删了会断。
+ */
+static const char *NXJB_NATIVE_INSTALL_JS =
+    "var __nx_names=[];"
+    "try{__nx_names=JSON.parse(__nx_native_names);}catch(e){__nx_names=[];}"
+    "for(var __nx_i=0;__nx_i<__nx_names.length;__nx_i++){(function(nm){"
+    "var p=nm.split('.');var o=globalThis;"
+    "for(var k=0;k<p.length-1;k++){if(typeof o[p[k]]==='undefined'||o[p[k]]===null){o[p[k]]={};}o=o[p[k]];}"
+    "o[p[p.length-1]]=(function(n){return function(){"
+    "return __nx_native(n,JSON.stringify(Array.prototype.slice.call(arguments)));};})(nm);"
+    "})(__nx_names[__nx_i]);}";
+
+static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 static void free_state(struct BackendState *st)
 {
@@ -34,7 +57,77 @@ static void free_state(struct BackendState *st)
     free(st);
 }
 
-void *init(const char *bootstrap_js, int32_t bootstrap_len)
+/*
+ * 把 `__nx_native` / `__nx_native_names` 装进 context，再跑挂载脚本。
+ * 返回 0 成功（含「未提供 provider」），-1 失败（异常已清）。
+ */
+static int32_t install_natives(struct BackendState *st)
+{
+    JSValue g;
+    JSValue v;
+
+    if (st->native_call == 0) return 0;
+    if (st->native_names == 0 || st->native_names_len <= 0) return 0;
+    JS_SetContextOpaque(st->ctx, st);
+    g = JS_GetGlobalObject(st->ctx);
+    JS_SetPropertyStr(st->ctx, g, "__nx_native",
+                      JS_NewCFunction(st->ctx, js_native_call, "__nx_native", 2));
+    JS_SetPropertyStr(st->ctx, g, "__nx_native_names",
+                      JS_NewStringLen(st->ctx, st->native_names, (size_t)st->native_names_len));
+    JS_FreeValue(st->ctx, g);
+    v = JS_Eval(st->ctx, NXJB_NATIVE_INSTALL_JS, strlen(NXJB_NATIVE_INSTALL_JS),
+                "<natives>", JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(v)) {
+        v = JS_GetException(st->ctx);
+        JS_FreeValue(st->ctx, v);
+        return NXJB_ERR;
+    }
+    JS_FreeValue(st->ctx, v);
+    return 0;
+}
+
+static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+    struct BackendState *st;
+    const char *name;
+    const char *args;
+    size_t name_len;
+    size_t args_len;
+    char *out;
+    size_t out_len;
+    JSValue ret;
+    int32_t rc;
+
+    (void)this_val;
+    st = JS_GetContextOpaque(ctx);
+    if (st == 0 || st->native_call == 0) return JS_ThrowTypeError(ctx, "native provider not installed");
+    if (argc < 2) return JS_ThrowTypeError(ctx, "native call: bad arguments");
+    name = JS_ToCStringLen(ctx, &name_len, argv[0]);
+    if (name == 0) return JS_EXCEPTION;
+    args = JS_ToCStringLen(ctx, &args_len, argv[1]);
+    if (args == 0) {
+        JS_FreeCString(ctx, name);
+        return JS_EXCEPTION;
+    }
+    out = 0;
+    out_len = 0;
+    rc = st->native_call(st->native_user, name, name_len, args, args_len, &out, &out_len);
+    JS_FreeCString(ctx, name);
+    JS_FreeCString(ctx, args);
+    if (rc != 0 || out == 0) {
+        if (out != 0) free(out);
+        return JS_ThrowTypeError(ctx, "native call failed");
+    }
+    ret = JS_ParseJSON(ctx, out, out_len, "<native>");
+    free(out);
+    return ret;
+}
+
+void *init(const char *bootstrap_js, int32_t bootstrap_len,
+           int32_t (*native_call)(void *user, const char *name, size_t name_len,
+                                  const char *args_json, size_t args_len,
+                                  char **out_json, size_t *out_len),
+           void *native_user, const char *native_names, int32_t native_names_len)
 {
     struct BackendState *st;
     JSValue v;
@@ -43,6 +136,10 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len)
     if (st == 0) return 0;
     st->rt = 0;
     st->ctx = 0;
+    st->native_call = native_call;
+    st->native_user = native_user;
+    st->native_names = native_names;
+    st->native_names_len = native_names_len;
     st->rt = JS_NewRuntime();
     if (st->rt == 0) {
         free(st);
@@ -50,6 +147,10 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len)
     }
     st->ctx = JS_NewContext(st->rt);
     if (st->ctx == 0) {
+        free_state(st);
+        return 0;
+    }
+    if (install_natives(st) != 0) {
         free_state(st);
         return 0;
     }

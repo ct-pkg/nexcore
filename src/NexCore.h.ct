@@ -80,6 +80,15 @@ pub typedef void (*NexCoreSink)(void *user, const char *json, size_t len);
 pub typedef void (*NexCoreLog)(void *user, int32_t level, const char *msg, size_t len);
 
 /*
+ * 原生能力回调（PH-10）：JS 侧按名字调用时，库把实参序列化成 JSON 数组传进来。
+ * 返回值写成 JSON 文本；非 NX_OK 时 JS 侧抛错。成功时 out_json 由库 free。
+ */
+pub typedef int32_t (*NexCoreNativeCall)(void *user,
+                                         const char *name, size_t name_len,
+                                         const char *args_json, size_t args_len,
+                                         char **out_json, size_t *out_len);
+
+/*
  * 唯一的跨 ABI 结构体。硬约束：
  * - 不使用 trait（trait 会追加隐藏 vptr，平台侧布局会静默错位）；
  * - struct_size 是最小长度协商，不是严格相等；
@@ -102,6 +111,11 @@ pub struct NexCoreConfig {
     /* 以下为可选尾字段：struct_size 只到 bootstrap_len 时视为未提供，库不得越界读取。 */
     NexCoreLog log;
     void *log_user;
+    /* PH-10 追加的可选尾字段（D-18 尾部追加，不升 abi_version）。 */
+    NexCoreNativeCall native_call;
+    void *native_user;
+    const char *native_names;
+    size_t native_names_len;
 }
 
 pub enum NxConfigLayout {

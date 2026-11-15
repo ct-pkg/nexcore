@@ -1,4 +1,12 @@
 #include <stdint.h>
+#include <stddef.h>
+
+/* 回调形状（与 ABI 的 NexCoreNativeCall 逐字段同型）。必须是 pub：生成器只导出 pub 声明，
+ * 放在 namespace 之外是为了让名字保持原样、不被加单元前缀。 */
+pub typedef int32_t (*NxNativeCallFn)(void *user,
+                                      const char *name, size_t name_len,
+                                      const char *args_json, size_t args_len,
+                                      char **out_json, size_t *out_len);
 
 namespace js_backend;
 
@@ -6,8 +14,15 @@ namespace js_backend;
  * JS 后端接口（P1 只有空实现；P2 换成 QuickJS 实现，调用点不变）。
  *
  * 线程约定：句柄只在调用方线程使用（P1 没有 worker 线程），本单元内部不引入锁。
+ *
+ * native_call 的形状与 ABI 的 NexCoreNativeCall 逐字段同型；这里直接写内联函数指针，
+ * 不引入跨头 typedef（ns 内的 typedef 会被生成器加前缀，跨头同名又会撞 C99 重定义）。
+ * native_* 四个参数来自 NexCoreConfig 的尾字段，调用方已保证 struct_size 覆盖到它们；
+ * 全为 0 表示不注册任何原生能力。
  */
-pub void *init(const char *bootstrap_js, int32_t bootstrap_len);
+pub void *init(const char *bootstrap_js, int32_t bootstrap_len,
+               NxNativeCallFn native_call, void *native_user,
+               const char *native_names, int32_t native_names_len);
 
 /*
  * 把 src 当作 JS 表达式求值，结果以 malloc 缓冲返回，调用方负责 free。

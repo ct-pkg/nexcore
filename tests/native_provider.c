@@ -27,9 +27,10 @@ static int32_t echo_call(void *user, const char *name, size_t name_len,
     *out = 0;
     *out_len = 0;
 
-    if (name_len == 6 && memcmp(name, "noFail", 6) == 0) return NX_E_INTERNAL;
+    /* name 是注册时的全名（如 "Shell.ping"），不是末段。 */
+    if (name_len == 12 && memcmp(name, "Shell.noFail", 12) == 0) return NX_E_INTERNAL;
 
-    if (name_len == 4 && memcmp(name, "ping", 4) == 0) {
+    if (name_len == 10 && memcmp(name, "Shell.ping", 10) == 0) {
         const char *pong = "{\"pong\":true}";
         *out = (char *)malloc(strlen(pong) + 1);
         strcpy(*out, pong);

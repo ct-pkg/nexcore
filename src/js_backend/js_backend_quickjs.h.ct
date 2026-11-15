@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 
 /*
  * 非注册单元：仅 `NEXCORE_JS=quickjs` 档使用，不进 units.json。
@@ -18,7 +19,11 @@ namespace js_backend;
  * 线程约定：runtime/context 只在调用方线程使用（P1/P2 没有 worker 线程），
  * 因此本单元内部不引入锁；跨线程版本留给后续阶段。
  */
-pub void *init(const char *bootstrap_js, int32_t bootstrap_len);
+pub void *init(const char *bootstrap_js, int32_t bootstrap_len,
+               int32_t (*native_call)(void *user, const char *name, size_t name_len,
+                                      const char *args_json, size_t args_len,
+                                      char **out_json, size_t *out_len),
+               void *native_user, const char *native_names, int32_t native_names_len);
 
 /*
  * 把 src 当作 JS 表达式求值（内部包一层括号，允许 JSON 对象/数组字面量），

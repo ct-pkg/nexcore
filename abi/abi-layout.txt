@@ -39,12 +39,13 @@
 [enum NxConfigLayout]
   NEXCORE_CONFIG_V1_SIZE = 72
   NEXCORE_CONFIG_MIN_SIZE = 72
-  NEXCORE_CONFIG_CURRENT_SIZE = 88
+  NEXCORE_CONFIG_CURRENT_SIZE = 120
 [typedef NexCoreHandle] size=8 align=8
 [typedef NexCoreSink] size=8 align=8
 [typedef NexCoreLog] size=8 align=8
-[struct NexCoreConfig] size=88 align=8
-  order=struct_size,abi_version,protocol_version,default_timeout_ms,max_message_bytes,max_pending,flags,reserved,now_ms,clock_user,schema_hash,bootstrap_js,bootstrap_len,log,log_user
+[typedef NexCoreNativeCall] size=8 align=8
+[struct NexCoreConfig] size=120 align=8
+  order=struct_size,abi_version,protocol_version,default_timeout_ms,max_message_bytes,max_pending,flags,reserved,now_ms,clock_user,schema_hash,bootstrap_js,bootstrap_len,log,log_user,native_call,native_user,native_names,native_names_len
   struct_size type=uint32_t offset=0 size=4
   abi_version type=uint32_t offset=4 size=4
   protocol_version type=uint32_t offset=8 size=4
@@ -60,3 +61,7 @@
   bootstrap_len type=size_t offset=64 size=8
   log type=NexCoreLog offset=72 size=8
   log_user type=void * offset=80 size=8
+  native_call type=NexCoreNativeCall offset=88 size=8
+  native_user type=void * offset=96 size=8
+  native_names type=const char * offset=104 size=8
+  native_names_len type=size_t offset=112 size=8
