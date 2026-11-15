@@ -149,9 +149,9 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | # | 判据 | 判定命令与阈值 | 对应任务 |
 | --- | --- | --- | --- |
 | E1 | `Promise` 回调在 `send`+`drain` 后**必然**执行过 | `tests/pump_microtask.c`：bootstrap 挂 `.then`，`send "hit"` 后 sink 收到 `1`；两级链 `n == 2`。**quickjs 档 PASS；null 档 N/A（无引擎，不计通过）** | T1 |
-| E1b | 泵有界：自续链必须返回 | 同一夹具追加用例：`var f=function(){Promise.resolve().then(f)}; f();` 后 `send`+`drain` 在 CAP（10000）内返回，不挂死；`hits` 计数 == CAP | T1 |
+| E1b | 泵有界：自续链必须返回且真跑到 CAP | 同一夹具追加用例：`var f=function(){Promise.resolve().then(f)}; f();` 后 `send`+`drain` 在 CAP（10000）内返回，不挂死；且 `stat(JS_JOBS) >= 10000`（证明是「跑满 CAP 才停」而非「跑几个就返回」） | T1 |
 | E1c | `max_jobs > 0` 只跑 N 个，且 `shutdown` 收尾泵不丢 job | 夹具用 provider 计数器：排 3 个 job → `pump(h,1)` 后计数 +1；再 `shutdown` 后计数达到 3（收尾泵补齐） | T1 |
-| E1d | job 抛错不静默 | `Promise.resolve().then(function(){throw new Error("boom")})` 之后的下一条消息 `send` 后 sink 无投递，且 `stat(LAST_ERROR)` ≠ 0 | T1 |
+| E1d | job 抛错不静默 | `Promise.resolve().then(function(){throw new Error("boom")})` 后的下一条消息：QuickJS 把 job 内 throw 转成「被拒绝的 Promise」，消息仍照常投递，但 `stat(JS_EXCEPTIONS) >= 1`（宿主拒绝追踪器采样） | T1 |
 | E2 | ⑮ 门禁真跑且能红 | 正例 PASS；把 `js_backend_quickjs.ct` 的 `pump` 换成 `return 0;` 后 ⑮ FAIL（红证贴原始输出与退出码） | T2 |
 | E3 | Provider 注册可用且向后兼容 | `tests/native_provider.c`：注册名 JSON 往返正确；未注册名 → JS 抛错；**清单外全名直接调 `__nx_native` 也必须抛错**；老调用方按 **88 / 96 / 104 / 112 / 120** 五档各测一次，每档 `malloc(N)` 精确分配 + 尾页 `PROT_NONE` 保护（越界必崩），期望：N<120 → `create` rc=0 且无 `Shell`；N=120 → 有 `Shell` | T3 |
 | E4 | ⑯ 门禁真跑且能红 | 正例 PASS；删掉 `native_call` 赋值后 ⑯ FAIL | T4 |
@@ -193,13 +193,15 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 
 | # | 判据 | 命令 | 原始输出摘要 | rc | 结论 |
 | --- | --- | --- | --- | --- | --- |
-| E1 | … | `…` | `…` | … | — |
-| E2 | … | `…` | `…` | … | — |
-| E3 | … | `…` | `…` | … | — |
-| E4 | … | `…` | `…` | … | — |
-| E5 | … | `…` | `…` | … | — |
-| E6 | … | `…` | `…` | … | — |
-| E7 | … | `…` | `…` | … | — |
+| E1 | `Promise` 回调在 `send`+`drain` 后**必然**执行过 | `tests/pump_microtask.c`（经 ⑮）：bootstrap 挂 `.then`，`send "hit"` 后 sink 收到 `1`；两级链 `n == 2`。**quickjs 档 PASS；null 档 N/A（无引擎，不计通过）** | `A: send+drain rc=0 hits=1` / `B: chain rc=0 n=2` / `PUMP OK` | 0 | PASS（quickjs）；null N/A |
+| E2 | ⑮ 门禁真跑且能红 | 正例：`NEXCORE_JS=quickjs bash tools/check.sh` 含 `⑮ microtask pump: PASS`；红证：把 `pump` 换成 `return 0;` | `⑮ microtask pump: PASS（…）`；红证见 §11 PH10-T2，`⑮ FAIL: 微任务未被泵到` | 0 / 红证 1 | PASS |
+| E3 | Provider 注册可用且向后兼容 | `tests/native_provider.c`（经 ⑯）：注册名 JSON 往返、未注册名/清单外全名直调/回调错误均抛错；`malloc(N)` 精确分配 + 尾页 `PROT_NONE`，N=88/96/104/112/120 | `A1: Shell.echo(7) -> 7` / `B/C/D -> "threw"` / `E: typeof __nx_native_names -> "undefined"` / `D88..D112: create rc=0, typeof Shell="undefined"` / `D120: typeof Shell="object"` / `NATIVE OK` | 0 | PASS |
+| E4 | ⑯ 门禁真跑且能红 | 正例：`NEXCORE_JS=quickjs bash tools/check.sh` 含 `⑯ native provider: PASS`；红证：删掉 `native_call` 赋值 | `⑯ native provider: PASS（…五档 struct_size）`；红证见 §11 PH10-T4 | 0 / 红证 1 | PASS |
+| E5 | `.a` 存在且内容可核对 | `ar t build/bin/libnexcore.a`；`nm -g --defined-only`；`otool -L`；⑰ 内建显式路径链接 + 缺对象负例 | `__.SYMDEF SORTED js_backend.o NexCore.o protocol.o queue.o`（null 档；quickjs 档为 `js_backend_quickjs.o`）；19 个 `T` 全落在 `nexcore_`/`js_backend_`/`queue_`/`protocol_`；`otool -L` 仅 libSystem；负例 stderr 含 `_nexcore_create`；`⑰ archive: PASS（…运行 SMOKE OK / 缺对象必红）` | 0（null 运行面 N/A-RUN） | PASS |
+| E6 | 边界扫描覆盖 `hosts/`（`.ct` 与 C 双向） | `bash tests/hosts_boundary_scan.sh`：注入 `#if 1` 的 `.ct` 与越界 `#include` 的 `.c`，都要求 rc=1 且点名，删除后 rc=0 | `HOSTS SCAN OK`；红证见 §11 PH10-T6（`.ct` 未被扫）与 PH10-T6r（`.c` 未被拦） | 0 / 红证 1 | PASS |
+| E7 | `hosts/` 目录存在且不引入 `.ct` | `find hosts -name '*.ct'` 为空；`bash tools/check-boundaries.sh` PASS | `find hosts -name '*.ct'` → 0 行；`boundaries: PASS（19 个文件，无 #if / 无 errno / import 顺序正确）` | 0 | PASS |
+
+> 收口实跑：`NEXCORE_JS=quickjs bash tools/check.sh` → `ALL CHECKS PASSED (NEXCORE_JS=quickjs)`（rc=0）；`bash tools/check.sh` → `ALL CHECKS PASSED (NEXCORE_JS=null)`（rc=0，SKIP 仍为 3：⑧⑨ smoke）。均在 `/tmp/nx10` 副本执行（仓库根 `build/` 被 macOS 封存）。
 
 ---
 
@@ -231,6 +233,11 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | PH10-T5 | `799a4e3` | 只加 ⑰（不加 `ar` 目标）后跑 `NEXCORE_JS=quickjs bash tools/check.sh` | `⑰ FAIL: build/bin/libnexcore.a 不存在（构建未产出静态归档）` | 1 | 2026-11-15 |
 | PH10-T6 | `19b7934` | `bash tests/hosts_boundary_scan.sh` | `FAIL: check-boundaries.sh 默认范围没扫到 hosts/（rc=0）` / `boundaries: PASS（19 个文件…）` | 1 | 2026-11-15 |
 | PH10-T7 | `6881cf0` | `find hosts -name '*.ct'` 与 `bash tools/check-boundaries.sh` | 纯文档目录：无 `.ct`，扫描仍 PASS（no-test，理由见任务行） | 0 | 2026-11-15 |
+| PH10-T3r | `6094568` | 把 `NexCore.ct` 的阈值临时改成字面的 `struct_size >= 88` 后跑 `tests/native_provider.c`（五档保护页夹具） | 无输出即被信号终止：`rc=138`（SIGBUS，88 档踩 PROT_NONE 页） | 138 | 2026-11-15 |
+| PH10-T1r | `4dc4c84` | 把泵改回无界（`limit = 0x7fffffff`）、去掉 shutdown 收尾泵后跑 `tests/pump_microtask.c` | `C: bounded...` 不出现即挂死；`rc=142`（SIGALRM，alarm(5) 兜底） | 142 | 2026-11-15 |
+| PH10-T1s | `4dc4c84` | 同上环境跑 `tests/pump_bounds.c`（白盒） | `B: after shutdown bumps=1` / `FAIL: shutdown 未补齐剩余 job（期望 bumps=3）` | 4 | 2026-11-15 |
+| PH10-T6r | `3084fc3` | `bash tests/hosts_boundary_scan.sh`（新增 `.c` 越界 include 探针） | `FAIL: C 宿主越界 include 未被拦下（rc=0）` / `boundaries: PASS（19 个文件…）` | 1 | 2026-11-15 |
+| PH10-T5r | — | 无独立红证：本轮是加强项（T 前缀约束、负例失败原因断言），不改变既有状态 | 归档 T 集合与负例 stderr 由 ⑰ 静态断言；原 ⑰ 缺档红证见 PH10-T5 | — | 2026-11-15 |
 
 ---
 
@@ -249,11 +256,20 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | C7 | 删除 `turns()`（接口、两档实现、`units.json`、map） | 无调用者的僵尸方法会被下游误当能力 | 原卡保留它且无判据 |
 | C8 | ⑯ 失败文案改为「Provider 未生效 / 越界读尾字段（五档夹具覆盖）」 | 文案必须与实际覆盖面对齐 | 原文案声称覆盖越界，但夹具抓不到 |
 | C9 | T-5 自检口径澄清：E1/E1b/E1c/E1d 属同一交付物 | 避免「一任务多交付物」的误读 | 原文「7 任务 ↔ E1–E7 一一对应」在拆出子断言后不成立 |
+| C10 | E1b / E1d 判据改成可观测形式：E1b 加 `stat(JS_JOBS) >= 10000`；E1d 改为「消息照常投递 + `stat(JS_EXCEPTIONS) >= 1`」 | QuickJS 把 job 内 throw 变成被拒绝的 Promise，这是引擎事实，不是实现选择；`hits` 是 JS 局部变量，宿主无法直接观察 | E1d 原句「sink 无投递且 LAST_ERROR≠0」在任何正确实现下都不成立（实测 `delivered=1`）；E1b 原句「`hits` 计数 == CAP」无公开 ABI 可读，写成通过只能靠猜 |
 
-**返工范围**：T1–T6 已落地的实现需按 C1–C8 返工（T7 不受影响）；返工提交紧随本卡修订之后，仍按「红证 → 实现」成对提交。
-| PH10-T3r | `6094568` | 把 `NexCore.ct` 的阈值临时改成字面的 `struct_size >= 88` 后跑 `tests/native_provider.c`（五档保护页夹具） | 无输出即被信号终止：`rc=138`（SIGBUS，88 档踩 PROT_NONE 页） | 138 | 2026-11-15 |
+**返工范围**：T1–T6 已落地的实现需按 C1–C8 返工（T7 不受影响）；返工提交紧随本卡修订之后，仍按「红证 → 实现」成对提交。C10 只改判据表述与夹具断言，不改变实现。
 
-| PH10-T1r | `4dc4c84` | 把泵改回无界（`limit = 0x7fffffff`）、去掉 shutdown 收尾泵后跑 `tests/pump_microtask.c` | `C: bounded...` 不出现即挂死；`rc=142`（SIGALRM，alarm(5) 兜底） | 142 | 2026-11-15 |
-| PH10-T1s | `4dc4c84` | 同上环境跑 `tests/pump_bounds.c`（白盒） | `B: after shutdown bumps=1` / `FAIL: shutdown 未补齐剩余 job（期望 bumps=3）` | 4 | 2026-11-15 |
-| PH10-T6r | `3084fc3` | `bash tests/hosts_boundary_scan.sh`（新增 `.c` 越界 include 探针） | `FAIL: C 宿主越界 include 未被拦下（rc=0）` / `boundaries: PASS（19 个文件…）` | 1 | 2026-11-15 |
-| PH10-T5r | — | 无独立红证：本轮是加强项（T 前缀约束、负例失败原因断言），不改变既有状态 | 归档 T 集合与负例 stderr 由 ⑰ 静态断言；原 ⑰ 缺档红证见 PH10-T5 | — | 2026-11-15 |
+---
+
+## 13. 收口登记（2026-11-15）
+
+| 项 | 事实 | 核验 |
+| --- | --- | --- |
+| E1–E7 | 全部 PASS，无 UNVERIFIED、无「跳过算绿」 | §9 证据表逐行有命令与原始输出 |
+| 两档门禁 | `NEXCORE_JS=quickjs` 与 `NEXCORE_JS=null` 均 `ALL CHECKS PASSED`，rc=0；null 档 SKIP 仍为 3（⑧⑨ smoke），未增加 | 均在 `/tmp/nx10` 副本实跑（仓库根 `build/` 被 macOS 封存） |
+| 不变量 | I-1（7 符号）、I-2（单 struct）、I-3（MIN_SIZE 不变）、I-4（`abi_version` 不升）、I-6（未改 acceptance/roadmap）均成立 | ⑩ ⑪ ⑫ 通过；`git diff --name-only` 不含 `docs/acceptance.md`、`docs/roadmap.md` |
+| 版本 | 产品版本 `v0.9` → `v0.10.0`（MINOR=10 == `PH-10`），`docs/session-map.md` 同步 | `docs/README.md:17`、`docs/session-map.md:42` |
+| 收口 tag / push | **未执行**：本轮指令明确「只本地提交，不 push、不打 tag」。按 6.7 V-7，此项属收口动作缺口，登记为待办而非通过 | 补跑命令（获得授权后）：`git tag -a v0.10.0 -m "PH-10 <收口提交 sha 前 7 位>" <sha> && git push origin v0.10.0` |
+| 未覆盖项 | ⑭ 的 Kotlin 编译本机无 `kotlinc`，仍为既有的 `UNVERIFIED`（非本 phase 引入，未改写为通过） | 见 ⑭ 输出行 |
+
