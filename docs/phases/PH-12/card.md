@@ -114,3 +114,38 @@
 | --- | --- | --- |
 | 仓库根 `build/` | 被 macOS 封存，实跑在 `/tmp/nx12` | `rsync -a --exclude build --exclude .git <repo>/ /tmp/nx12/` |
 | 收口 tag / push | 本轮授权不做 | `git tag -a v0.12.0 -m "PH-12 <sha>" <sha> && git push origin v0.12.0` |
+
+---
+
+## 9. 收口证据表（2026-11-15，`/tmp/nx12` 副本实跑）
+
+| # | 判据 | 命令 | 原始输出摘要 | rc | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 档位错配必红 | 故障注入：PATH 前置 `ar` 包装，把 null 档 `js_backend.o` 塞进 quickjs 归档后跑 `check.sh` | `⑰ FAIL: js_backend.o 是 header stub，不得定义 T 符号（档位错配）：` + `_js_backend_eval/_init/_pump/_shutdown/_stats` | 1 | PASS |
+| E1b | 正常归档不误红 | 两档 `bash tools/check.sh` | `⑰ archive: PASS（对象集合 / 档位 / …）`；null 档 `N/A-RUN` | 0 | PASS |
+| E2 | ABI 未扩 | `grep -c NX_E_JS_EXCEPTION abi/abi-layout.txt` | `0` | 0 | PASS |
+| E3 | `-e` 可用 | `nex -e 'var a=1; a+1'` | `2` | 0 | PASS |
+| E4 | stdin 可用 | `printf '1+2\n' \| nex -` | `3` | 0 | PASS |
+| E5 | argv/env 可见 | 夹具脚本 `Shell.print(process.argv[1]+"\|"+process.env.NEX_T)` | `<tmp>/argv.nexjs\|v` | 0 | PASS |
+| E6 | SIGINT 标记 | 后台跑自旋脚本 300ms，100ms 时 `kill -INT` | 退出码 `130` | 130 | PASS |
+| E7 | 全量门禁 | 两档 `check.sh` + `check-host.sh` | `ALL CHECKS PASSED (quickjs)` / `(null)`，SKIP=3；`HOST OK` | 0 | PASS |
+
+**红证记录**
+
+| task | baseline | 命令 | 原始输出（节选） | rc |
+| --- | --- | --- | --- | --- |
+| PH12-T1 | `19053db` | 故障注入后的 `check.sh` | `⑰ FAIL: js_backend.o 是 header stub，不得定义 T 符号（档位错配）` | 1 |
+| PH12-T3/T4 | `f5d10e2` | `bash tools/check-host.sh`（实现前） | `nex: cannot read -e` / `check-host: FAIL -e 退出码非 0` | 1 |
+
+**说明**：T1 的红证是外部故障注入（`PATH` 前置 `ar` 包装），不靠改 `check.sh` 制造失败；注入脚本与证据在 `/tmp`，未入库。
+
+---
+
+## 10. 遗留项
+
+| # | 项 | 状态 |
+| --- | --- | --- |
+| K-4 | 求值期间无法响应 SIGINT（无引擎中断钩子） | 挂账，PH-13 候选（库层 `JS_SetInterruptHandler` + 预算） |
+| K-5 | `process.env` 是启动快照，脚本内修改不回写 | 已在 `hosts/README.md` 写清；阶段 3 再议 |
+| K-3 | ABI 错误码评审 | **关闭**：结论不新增（[评审](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-ph12-k3-abi-error-code-review.md)） |
+| K-1 | 归档档位判据 | **关闭**：⑰ 已增断言，红证见 §9 |

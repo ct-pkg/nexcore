@@ -12,11 +12,14 @@
 
 | 项 | 口径 |
 | --- | --- |
-| 输入 | `nex <script>`；脚本按**程序模式**求值（多语句、`#!` 首行由引擎处理） |
+| 输入 | `nex <script>` / `nex -e '<code>'` / `nex -`（stdin）；按**程序模式**求值（多语句、`#!` 首行由引擎处理） |
 | 原生能力 | 只注册 `Shell.print`（走 `NexCoreConfig` 的 `native_call` / `native_names` 尾字段） |
+| 进程快照 | `process.argv`（`["nex", <script 或 -e>, ...args]`）与 `process.env`（启动时 `environ` 快照），均 `Object.freeze`；脚本内改 env 不回写宿主（K-5） |
 | 输出 | 脚本完成值打到 stdout；`$error`（`code=E_JS_EXCEPTION`）打到 stderr；`null` 完成值不打 |
-| 退出码 | `0` 成功；`1` 脚本错误（`stat(LAST_ERROR)` 非 0）；`2` 用法或读文件失败 |
+| 退出码 | `0` 成功；`1` 脚本错误（`stat(LAST_ERROR)` 非 0）；`2` 用法或读文件失败；`130` 收到 SIGINT |
 | 产物 | `build/bin/nex`，**不安装**到系统目录、不作为发布物（裁定 §7.3） |
+
+SIGINT 只做「求值结束后按标记退出」：同步求值进行中没有中断入口，需要库层暴露引擎中断钩子（PH-12 卡 K-4）。
 
 构建与验收：
 
@@ -29,10 +32,12 @@ bash tools/check-host.sh                    # 独立宿主验收（不进 check.
 
 ```bash
 build/bin/nex script.nexjs
+build/bin/nex -e 'var a=1; a+1'
+printf '1+2\n' | build/bin/nex -
 # 脚本首行写 #!/usr/bin/env nex 时，需把 build/bin 放进 PATH：
 PATH="$PWD/build/bin:$PATH" ./script.nexjs
 # 未安装时也可用绝对路径验证内核传参：
 printf '#!%s\nvar b=2; b+1\n' "$PWD/build/bin/nex" > /tmp/t.nexjs && chmod +x /tmp/t.nexjs && /tmp/t.nexjs
 ```
 
-范围：本阶段没有 `-e`、`process.argv/env`、stdin、SIGINT、`Shell.spawn`（阶段 2 起，见 PH-11 卡 §7）。
+范围：本阶段没有 `import`/`require`、`Shell.spawn`、子进程（阶段 3 起，见 PH-11/PH-12 卡）。
