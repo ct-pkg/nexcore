@@ -3,6 +3,7 @@
 > 日期：2026-11-15 ｜ 立场：**反证席**（目标是找出返工点、ABI 债、门禁假绿；攻不倒的明写「站得住」）
 > 基线：`HEAD = 799a4e3`（评审期间仓库从 `249b178` 前进到 `799a4e3`：T1–T4 已落地）。**本文行号一律以 `799a4e3` 为准。**
 > 在途：`tools/check.sh` 工作树有 60 行未提交改动（另一会话的 ⑰），本文**不引用该改动、不跑全量门禁**；所有实测在 `/tmp` 独立副本完成。
+> 基线校准：提交本文时仓库已前进到 `aaa8428`（T5 `19b7934` 产出 `.a`、T6 `aaa8428` 加 `tests/hosts_boundary_scan.sh`）。§4/§5 评的是**卡面判据文本**，实现落地不改变这些判据的可执行性问题；§5.2 已补 T6 实际用法的说明。
 > 对象：[裁定](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-shell-host-ruling.md)、[PH-10 卡](file:///Users/samxx/trae-ws/nexcore/docs/phases/PH-10/card.md)、[修订清单](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-shell-host-proposal-revisions.md)；并对照同轮[主张席评审](file:///Users/samxx/trae-ws/nexcore/docs/reviews/nexcore-shell-host-stage0-proponents-review.md)。
 > 纪律：只读仓库 + 只写本文件；未改 `src/`、`tools/`、卡片、`abi/`；未 push、未打 tag。
 
@@ -370,6 +371,8 @@ boundaries: PASS（19 个文件，...）                              # 仍 19
 ```
 
 T7 落位后 `hosts/` 只有 `README.md`，计数仍是 19。T6 的 verify 命令在 T7 成立的前提下**无法通过**；要让它通过就得先放一个 `.ct`，又违反 E7。**这两条任务清单条目按现文不能同时收口。**
+
+补充（基线校准）：T6 已落地的做法是独立脚本 [hosts_boundary_scan.sh](file:///Users/samxx/trae-ws/nexcore/tests/hosts_boundary_scan.sh#L10-L14)，往真实 `hosts/shell/` 注入 `__boundary_probe.ct` 再删，**绕开了 `scanned` 计数**，所以实测能红。这证明卡面的 T6 措辞该改；但合成 `.ct` 的性质没变——真实交付物仍是 C，见 §5.1。
 
 ### 5.3 缺目录静默跳过
 
