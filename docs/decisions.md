@@ -396,3 +396,15 @@
 4. **`0` 保持未分配**：避免“未初始化/旧实现写 0”被误读成一个合法的观测键。
 
 **后果**：`nexcore_stat` 对 `10..14` 返回 `NX_E_INTERNAL` 且**不写 `*out`**；五个 counter 实现前禁止返回 0、也不得走 `NX_E_INVALID_ARGUMENT`。新增键从 `19` 起顺序追加，`NEXT_FREE` 随之后移。`src/NexCore.h.ct` 的枚举与注释表、design §6.4 的表、实现单元的编号断言 `nexcore_stat_key_frozen` 必须同一次提交更新；验收判据见 acceptance ACC-A-12。**counter 采样不单独立项**：`10..14` 对应的关闭流程、JS 线程、drain pump 在骨架里尚无事件源，现在补采样只能造值，反而破坏“已分配未实现”的语义；随对应子系统落地后实现，计数正确性届时再扩入 ACC-A-12。
+
+---
+
+## D-21
+
+**背景**：P1 退出判据要求「没有 QuickJS 依赖也能构建；`libnexcore` 的依赖只有 libc/pthread」（`docs/roadmap.md:55`，冻结），而 `src/NexCore.ct:74` 在 `nexcore_create` 里直接初始化 QuickJS 宿主，`tools/check.sh` 另有 6 处 `-isystem` 与 4 处链接 `libquickjs.a`。两席材料见 `docs/reviews/nexcore-p1-quickjs-battle.md`。
+
+**决定**：P1 不引入 QuickJS 依赖。JS 调用改经 P1 自有的 `js_backend` 接口单元（空实现），QuickJS 作为 P2 的后端实现后移；`tools/check.sh` 增设 `NEXCORE_JS=null|quickjs` 两档。P2 后端定为 Bellard QuickJS `2025-09-13`，Q-01 随之从「待定」降为「已选，换 fork 时重开」。
+
+**理由**：主张席必须改动冻结判据才能成立；反证席的改动可枚举且已实测——空实现下 ①②③④⑤ 全过，红点只在测试链接行；另实测确认 CT 的 `namespace` 必须等于目录名、⑤a 要求自 import，所以「同目录换文件」的开关式方案不成立，必须新增正式注册的接口单元。
+
+**后果**：`src/NexCore.ct` 5 个调用点改名；新增 `src/js_backend/`（接口 + 空实现 + 生成物映射）；`units.json` 与 `tools/nexcore_gen.py` 需支持新单元；⑧⑨/smoke 三条 JS 语义检查移出 P1 绿线，改由 `quickjs` 档在 P2 承担。完整执行清单与判据见 `docs/reviews/nexcore-p1-quickjs-ruling.md`。
