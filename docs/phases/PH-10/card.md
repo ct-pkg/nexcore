@@ -213,3 +213,4 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | task | baseline | 命令 | 原始输出（节选） | rc | 时点 |
 | --- | --- | --- | --- | --- | --- |
 | PH10-T1 | `ced05d4` | `cc -std=c99 -Wall -Wextra -Werror -I build/abi tests/pump_microtask.c build/bin/libnexcore.dylib -o /tmp/pm_base && /tmp/pm_base` | `A: send+drain rc=0 hits=0` / `FAIL: microtasks not pumped (expect hits=1)` | 3 | 2026-11-15 |
+| PH10-T2 | `d1c483b` | 在副本里把 `pump` 改成 `return 0;` 后跑 `NEXCORE_JS=quickjs bash tools/check.sh` | `FAIL: microtasks not pumped (expect hits=1)` / `⑮ FAIL: 微任务未被泵到（Promise 回调不可见）` | 1 | 2026-11-15 |

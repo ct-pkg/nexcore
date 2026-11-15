@@ -618,6 +618,19 @@ else
 fi
 echo "⑭ P3 generator: PASS（5 产物无漂移、20/20 负例真红、生成 C 过 -Werror）"
 
+echo "== 15. 微任务泵（PH-10 E1：宿主经 send+drain 可观察 Promise） =="
+# 判据：不新增导出符号，只用 ABI 的 send/drain，Promise 回调必须已执行且链按序。
+# null 档没有引擎，本项记 N/A（不是 PASS，也不计入 SKIP：D-21 把 JS 语义检查放在 quickjs 档）。
+if [ "$JS_BACKEND" = "quickjs" ]; then
+  "$CC" "${CFLAGS[@]}" \
+    -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+    tests/pump_microtask.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/pump_microtask"
+  "$BIN/pump_microtask" || { echo "⑮ FAIL: 微任务未被泵到（Promise 回调不可见）" >&2; exit 1; }
+  echo "⑮ microtask pump: PASS（hits=1、两级链 n=2）"
+else
+  echo "⑮ microtask pump: N/A (NEXCORE_JS=null：无引擎，不计通过)"
+fi
+
 echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 # ---------------------------------------------------------------------------
 # 检查项编号表（新增项追加，不复用旧号）
