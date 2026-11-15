@@ -454,6 +454,13 @@ SYMS
 "$CC" "${CFLAGS[@]}" -dynamiclib \
   -Wl,-exported_symbols_list,"$BIN/exports.txt" \
   -o "$BIN/libnexcore.dylib" "$IMPL"/obj/*.o $QJS_LIB -lm -lpthread
+
+# 静态归档（PH-10 E5）：只收本档实现对象；quickjs 档的引擎不进归档，
+# 由消费者自行链接（与 dylib 档链接口径一致；⑰ 会核对对象集合与链接结果）。
+rm -f "$BIN/libnexcore.a"
+ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
+echo "ar t libnexcore.a:"
+ar t "$BIN/libnexcore.a"
 echo "otool -L:"
 otool -L "$BIN/libnexcore.dylib"
 if otool -L "$BIN/libnexcore.dylib" | grep -qi 'quickjs'; then
