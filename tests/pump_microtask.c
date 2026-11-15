@@ -131,12 +131,21 @@ int main(void)
     if (nexcore_set_sink(h, &sink, on_response) != NX_OK) return 17;
     rc = ask(h, &sink, "1+1", &got);
     alarm(0);
-    printf("C: bounded self-renewing chain rc=%d val=%s\n", (int)rc, rc == NX_OK ? got : "<none>");
-    if (rc != NX_OK || strcmp(got, "2") != 0) {
-        printf("FAIL: self-renewing chain did not return (pump unbounded)\n");
-        nexcore_shutdown(h);
-        nexcore_free(h);
-        return 18;
+    {
+        int64_t jobs = -1;
+
+        nexcore_stat(h, NX_STAT_JS_JOBS, &jobs);
+        printf("C: bounded self-renewing chain rc=%d val=%s jobs=%d\n", (int)rc,
+               rc == NX_OK ? got : "<none>", (int)jobs);
+        /* 有界性的可观测形式：自续链必须真的跑到 CAP（10000）才停，而不是「跑几个就提前返回」。
+         * 只断言下界：一次 eval 里 pre/post 各泵一次，实际计数会大于 CAP。 */
+        if (rc != NX_OK || strcmp(got, "2") != 0 || jobs < 10000) {
+            printf("FAIL: self-renewing chain did not return at CAP (rc=%d, jobs=%d)\n",
+                   (int)rc, (int)jobs);
+            nexcore_shutdown(h);
+            nexcore_free(h);
+            return 18;
+        }
     }
     if (nexcore_shutdown(h) != NX_OK) return 19;
     if (nexcore_free(h) != NX_OK) return 20;
