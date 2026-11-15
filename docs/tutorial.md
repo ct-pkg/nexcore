@@ -3,7 +3,7 @@
 > 本文面向第一次接触本项目的人。所有命令都在本仓库根目录实跑验证过；
 > 文中标注「已实现 / 骨架 / 仅文档」的地方，均以仓库里的实际代码为准，不按设计文档的完成度来写。
 >
-> 验证环境：macOS arm64、`ct v0.19.1`、Apple clang、Python 3.15、Swift 6.x、`experiments/third_party/quickjs/libquickjs.a` 已就绪。
+> 验证环境：macOS arm64、`ct v0.44.1`（2026-11-15 升级）、Apple clang、Python 3.15、Swift 6.x、`experiments/third_party/quickjs/libquickjs.a` 已就绪。
 
 ---
 
@@ -95,7 +95,7 @@ ct-NexCore/
 
 | 依赖 | 版本/用途 | 检查方式 |
 |---|---|---|
-| `ct` | **v0.19.1**（仓库实测基线 `c27da3d`）。CT 迭代快，换版本必须重跑 `tools/check.sh` 与 `experiments/build.sh` | `ct v0.19.1` |
+| `ct` | **v0.44.1**（仓库实测基线 `158d7f40`，2026-11-15 升级；原基线 `c27da3d` / v0.19.1 已作废）。CT 迭代快，换版本必须重跑 `tools/check.sh` 与 `experiments/build.sh` | `ct v0.44.1` |
 | C 编译器 | 严格 `-Wall -Wextra -Werror` 必须零警告 | `cc --version` |
 | Python 3 | 生成器与检查脚本，仅用标准库（无 PyYAML 依赖） | `python3 --version` |
 | bash | `tools/check.sh` 用 `set -euo pipefail` | `bash --version` |

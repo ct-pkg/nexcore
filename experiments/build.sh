@@ -2,7 +2,7 @@
 #
 # experiments/build.sh — 重建并运行全部地基验证。
 #
-# 依赖：ct（v0.19.1 实测）、cc、make、curl、tar；Swift 可选。
+# 依赖：ct（v0.44.1 实测）、cc、make、curl、tar；Swift 可选。
 # QuickJS 只在 third_party/quickjs/libquickjs.a 缺失时下载。
 #
 set -euo pipefail
@@ -132,7 +132,7 @@ expect_fail() {
     printf '  %-24s -> %s\n' "$name" "$(head -1 "$gaps/$name.log")"
 }
 
-expect_fail import_in_compile_mode "'import' is not supported in compile mode" \
+expect_fail import_in_compile_mode "'import' requires multi-file mode" \
     "$CT" compile "$HERE/gaps/import_in_compile_mode.ct" -o "$gaps/import.c"
 expect_fail errno_probe "undeclared variable" \
     "$CT" compile "$HERE/gaps/errno_probe.ct" -o "$gaps/errno.c"
@@ -147,16 +147,12 @@ expect_fail ifdef_probe "expected an expression" \
 "$CC" -I "$HERE/gaps" "$gaps/ifdef_ok.c" -o "$gaps/ifdef_ok"
 "$gaps/ifdef_ok" | grep -q 'feature=1' || fail "#ifdef shim workaround"
 
-# import 放在 namespace 之后：不报错，但 include 被静默丢弃。
+# import 放在 namespace 之后：v0.44.1 起是硬错误（v0.19.1 曾静默丢弃 include）。
 mkdir -p "$gaps/import_after_ns"
-"$CT" build --emit-c --ns-root "$HERE/gaps" -I "$HERE/src" \
+expect_fail import_after_ns "imports must be at the top of the file" \
+    "$CT" build --emit-c --ns-root "$HERE/gaps" -I "$HERE/src" \
     "$HERE/gaps/demo/import_after_ns.h.ct" -o "$gaps/import_after_ns"
-if grep -q '#include "abi.h"' "$gaps/import_after_ns/import_after_ns.c"; then
-    fail "import after namespace was not dropped (gap changed)"
-fi
-grep -q 'nexcore_abi_add' "$gaps/import_after_ns/import_after_ns.c" \
-    || fail "import-after-namespace probe produced no call"
-printf '  %-24s -> import silently dropped (no #include "abi.h")\n' import_after_ns
+printf '  %-24s -> import after namespace rejected\n' import_after_ns
 
 # ns::fn 在 build 模式可正常解析（本次未复现解析歧义）。
 mkdir -p "$gaps/ns_qualified"
