@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <time.h>
 
 import queue;
 
@@ -10,12 +12,22 @@ namespace queue;
 #define NXQ_ERR_FULL -2
 #define NXQ_ERR_MEM -3
 #define NXQ_ERR_EMPTY -4
+#define NXQ_ERR_CLOSED -5
 
-/* 单元内部结构：不 pub，不进入导出头。 */
+/*
+ * 单元内部结构：不 pub，不进入导出头。
+ *
+ * PH-15 T1：inbox 是 MPSC，push/pop/depth/close 全程持 lock；
+ * 容量检查、malloc 与拷贝都在锁内，push 解锁后才 signal。
+ * wait 由条件变量阻塞，wake_all 只广播、不释放数据。
+ */
 struct Ring {
     int32_t capacity;
     int32_t count;
     char **items;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    int32_t closed;
 }
 
 void *open(int32_t capacity)
@@ -32,6 +44,9 @@ void *open(int32_t capacity)
     }
     r->capacity = capacity;
     r->count = 0;
+    r->closed = 0;
+    pthread_mutex_init(&r->lock, 0);
+    pthread_cond_init(&r->cond, 0);
     return r;
 }
 
@@ -42,13 +57,22 @@ int32_t push(void *handle, const char *data, int32_t len)
 
     if (handle == 0 || data == 0 || len < 0) return NXQ_ERR_ARG;
     r = handle;
-    if (r->count >= r->capacity) return NXQ_ERR_FULL;
+    pthread_mutex_lock(&r->lock);
+    if (r->count >= r->capacity) {
+        pthread_mutex_unlock(&r->lock);
+        return NXQ_ERR_FULL;
+    }
     copy = malloc((size_t)len + 1);
-    if (copy == 0) return NXQ_ERR_MEM;
+    if (copy == 0) {
+        pthread_mutex_unlock(&r->lock);
+        return NXQ_ERR_MEM;
+    }
     if (len > 0) memcpy(copy, data, (size_t)len);
     copy[len] = 0;
     r->items[r->count] = copy;
     r->count = r->count + 1;
+    pthread_mutex_unlock(&r->lock);
+    pthread_cond_signal(&r->cond);
     return 0;
 }
 
@@ -63,7 +87,11 @@ int32_t pop(void *handle, char **out_data, int32_t *out_len)
     r = handle;
     *out_data = 0;
     *out_len = 0;
-    if (r->count <= 0) return NXQ_ERR_EMPTY;
+    pthread_mutex_lock(&r->lock);
+    if (r->count <= 0) {
+        pthread_mutex_unlock(&r->lock);
+        return NXQ_ERR_EMPTY;
+    }
     item = r->items[0];
     len = (int32_t)strlen(item);
     i = 1;
@@ -73,18 +101,78 @@ int32_t pop(void *handle, char **out_data, int32_t *out_len)
     }
     r->items[r->count - 1] = 0;
     r->count = r->count - 1;
+    pthread_mutex_unlock(&r->lock);
     *out_data = item;
     *out_len = len;
     return 0;
 }
 
-int32_t depth(void *handle)
+/*
+ * 锁内检查 count > 0 || closed，不成立才等待；允许虚假唤醒。
+ * 返回 0 = 有数据（或被唤醒后已有数据），-4 = 超时（与空队列同码），
+ * -5 = 已关闭；timeout_ms < 0 无限等待，0 只做一次非阻塞检查。
+ */
+int32_t wait(void *handle, int32_t timeout_ms)
 {
     struct Ring *r;
+    struct timespec deadline;
+    int32_t rc;
+    int32_t timed_out;
 
     if (handle == 0) return NXQ_ERR_ARG;
     r = handle;
-    return r->count;
+    pthread_mutex_lock(&r->lock);
+    if (timeout_ms > 0) {
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec = deadline.tv_sec + (timeout_ms / 1000);
+        deadline.tv_nsec = deadline.tv_nsec + (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_nsec = deadline.tv_nsec - 1000000000L;
+            deadline.tv_sec = deadline.tv_sec + 1;
+        }
+    }
+    timed_out = 0;
+    while (r->count <= 0 && r->closed == 0 && timed_out == 0) {
+        if (timeout_ms < 0) {
+            pthread_cond_wait(&r->cond, &r->lock);
+        } else if (timeout_ms == 0) {
+            timed_out = 1;
+        } else if (pthread_cond_timedwait(&r->cond, &r->lock, &deadline) != 0) {
+            timed_out = 1;
+        }
+    }
+    if (r->closed != 0) {
+        rc = NXQ_ERR_CLOSED;
+    } else if (r->count > 0) {
+        rc = 0;
+    } else {
+        rc = NXQ_ERR_EMPTY;
+    }
+    pthread_mutex_unlock(&r->lock);
+    return rc;
+}
+
+/* 只唤醒等待者，不释放数据；由 shutdown 与 send 在锁外调用。 */
+void wake_all(void *handle)
+{
+    struct Ring *r;
+
+    if (handle == 0) return;
+    r = handle;
+    pthread_cond_broadcast(&r->cond);
+}
+
+int32_t depth(void *handle)
+{
+    struct Ring *r;
+    int32_t n;
+
+    if (handle == 0) return NXQ_ERR_ARG;
+    r = handle;
+    pthread_mutex_lock(&r->lock);
+    n = r->count;
+    pthread_mutex_unlock(&r->lock);
+    return n;
 }
 
 int32_t close(void *handle)
@@ -94,10 +182,16 @@ int32_t close(void *handle)
 
     if (handle == 0) return NXQ_ERR_ARG;
     r = handle;
+    pthread_mutex_lock(&r->lock);
+    r->closed = 1;
+    pthread_cond_broadcast(&r->cond);
     for (i = 0; i < r->count; i = i + 1) {
         free(r->items[i]);
     }
     free(r->items);
+    pthread_mutex_unlock(&r->lock);
+    pthread_mutex_destroy(&r->lock);
+    pthread_cond_destroy(&r->cond);
     free(r);
     return 0;
 }

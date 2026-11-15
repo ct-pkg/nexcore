@@ -212,6 +212,8 @@ int32_t nexcore_send(NexCoreHandle h, const char *json, size_t len)
         impl->last_error = NX_E_INTERNAL;
         return NX_E_INTERNAL;
     }
+    /* PH-15 T1：push 已在锁内完成并在解锁后 signal；这里锁外广播，唤醒阻塞的 drain。 */
+    queue::Ring.wake_all(impl->queue);
     return NX_OK;
 }
 
