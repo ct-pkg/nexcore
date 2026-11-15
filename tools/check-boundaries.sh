@@ -7,14 +7,14 @@
 #   3. import 必须集中在文件头部：任何非注释、非 #include 的声明之前
 #
 # 用法：bash tools/check-boundaries.sh [目录...]
-#   默认扫描 src 与 experiments/src
+#   默认扫描 src、experiments/src 与 hosts（宿主实现目录，PH-10 起纳入）
 # 退出码：0 = 全过；1 = 有违规；2 = 用法或环境错误
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGETS=("$@")
 if [ ${#TARGETS[@]} -eq 0 ]; then
-  TARGETS=("$ROOT/src" "$ROOT/experiments/src")
+  TARGETS=("$ROOT/src" "$ROOT/experiments/src" "$ROOT/hosts")
 fi
 
 violations=0

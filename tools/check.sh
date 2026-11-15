@@ -398,7 +398,7 @@ print(f"⑤b units.json parity: PASS ({checked} units)")
 PY
 
 echo "== ⑤c boundaries (tools/check-boundaries.sh) =="
-bash tools/check-boundaries.sh "$SRC" experiments/src
+bash tools/check-boundaries.sh "$SRC" experiments/src hosts
 
 echo "== 6. stat key contract =="
 "$CC" "${CFLAGS[@]}" \
