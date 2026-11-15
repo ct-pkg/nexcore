@@ -13,6 +13,7 @@
 #
 # 检查项：0 / ①a ①b ①c / ②a ②b ②c / ③ / ④ / ⑤a ⑤b ⑤c / ⑥ / ⑦ / ⑧ / ⑨ / smoke / ⑩
 #         / ⑪ ⑫ ⑬ ⑭（P3：ABI 布局 golden、A-04 负例、schema hash、生成器）
+#         / ⑮ ⑯ ⑰（PH-10：微任务泵、原生 Provider、静态归档）
 #
 # 用法：
 #   bash tools/check.sh        全量检查（上面的检查项）
@@ -649,7 +650,10 @@ if [ "$JS_BACKEND" = "quickjs" ]; then
   "$CC" "${CFLAGS[@]}" \
     -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
     tests/native_provider.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/native_provider"
-  "$BIN/native_provider" || { echo "⑯ FAIL: 原生 Provider 未生效或越界读了尾字段" >&2; exit 1; }
+  "$BIN/native_provider" || {
+    echo "⑯ FAIL: 原生 Provider 未生效 / 越界读尾字段（五档夹具覆盖）" >&2
+    exit 1
+  }
   echo "⑯ native provider: PASS（注册/未注册名/清单外直调/回调错误/五档 struct_size）"
 else
   echo "⑯ native provider: N/A (NEXCORE_JS=null：无引擎，不计通过)"
@@ -740,6 +744,13 @@ echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 #   ⑧  bootstrap_js 真执行：bootstrap 定义 __ok，消息 "__ok" 经 QuickJS 求值后 sink 收到 42
 #   ⑨  drain 端到端：send → queue → QuickJS → outbox → sink，顺序/深度/关闭排空
 #   smoke 跨单元调用链：create → send → QuickJS → drain → sink，stat/shutdown/free
+#   ⑮  微任务泵：bootstrap 的 .then 在 send+drain 后可观测、两级链按序；
+#       自续链在 CAP 内返回（有界）；max_jobs>0 只跑 N 个；shutdown 收尾泵不丢 job
+#   ⑯  原生 Provider：注册名 JSON 往返、未注册名/清单外全名直调/回调错误均抛错；
+#       struct_size 88/96/104/112/120 五档各一次（保护页夹具，越界必崩）
+#   ⑰  静态归档：对象集合 == build/impl/*.c、7 个 nexcore_* 全在、其余 T 只许内部前缀、
+#       显式路径链接（不走 -lnexcore）、仅 libSystem；去掉 NexCore.o 必须因
+#       缺 _nexcore_create 而失败
 #   ⑪  ABI 布局 golden：tools/abi_layout.py 用真实编译器实测 build/abi/NexCore.h，
 #       与 abi/abi-layout.txt 逐行一致（含 order= 行，同宽度重排也能拦）
 #   ⑫  ABI 冻结负例：插入字段 / 同宽度重排都必须产生 diff；config 协商运行时负例
