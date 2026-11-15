@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 import NexCore;
 import queue::queue_map;
@@ -203,12 +204,76 @@ int32_t nexcore_send(NexCoreHandle h, const char *json, size_t len)
 }
 
 /* 把 inbox 里的消息逐条交给 JS，求值结果压入 outbox。 */
+/*
+ * PH-11：脚本错误经 sink 透出（$error 通知）。只在引擎给出文案时投递，
+ * 其余失败仍只置 LAST_ERROR——不凭空造消息。JSON 转义在本文件内做，
+ * 避免宿主自己再拼一次（协议里 $error 是既有形状）。
+ */
+static void push_script_error(struct NexCoreHandleImpl *impl, const char *msg, int32_t len)
+{
+    static const char PREFIX[] = "{\"code\":\"E_JS_EXCEPTION\",\"message\":\"";
+    static const char SUFFIX[] = "\"}";
+    char *buf;
+    int32_t cap;
+    int32_t w;
+    int32_t i;
+
+    if (msg == 0 || len <= 0) return;
+    /* 最坏情况每个字符转义成 \u00XX（6 字节）。 */
+    cap = len * 6 + (int32_t)(sizeof(PREFIX) - 1) + (int32_t)(sizeof(SUFFIX) - 1) + 8;
+    buf = malloc((size_t)cap);
+    if (buf == 0) return;
+    memcpy(buf, PREFIX, sizeof(PREFIX) - 1);
+    w = (int32_t)(sizeof(PREFIX) - 1);
+    for (i = 0; i < len; i++) {
+        unsigned char c;
+
+        c = (unsigned char)msg[i];
+        if (c == '"' || c == '\\') {
+            buf[w] = '\\';
+            buf[w + 1] = (char)c;
+            w = w + 2;
+        } else if (c == '\n') {
+            buf[w] = '\\';
+            buf[w + 1] = 'n';
+            w = w + 2;
+        } else if (c == '\r') {
+            buf[w] = '\\';
+            buf[w + 1] = 'r';
+            w = w + 2;
+        } else if (c == '\t') {
+            buf[w] = '\\';
+            buf[w + 1] = 't';
+            w = w + 2;
+        } else if (c < 0x20) {
+            buf[w] = '\\';
+            buf[w + 1] = 'u';
+            buf[w + 2] = '0';
+            buf[w + 3] = '0';
+            buf[w + 4] = "0123456789abcdef"[(c >> 4) & 0xF];
+            buf[w + 5] = "0123456789abcdef"[c & 0xF];
+            w = w + 6;
+        } else {
+            buf[w] = (char)c;
+            w = w + 1;
+        }
+    }
+    memcpy(buf + w, SUFFIX, sizeof(SUFFIX) - 1);
+    w = w + (int32_t)(sizeof(SUFFIX) - 1);
+    if (queue::Ring.push(impl->outbox, buf, w) != 0) {
+        impl->last_error = NX_E_BACKPRESSURE;
+    }
+    free(buf);
+}
+
 static void pump_inbox(struct NexCoreHandleImpl *impl)
 {
     char *msg;
     int32_t len;
     char *resp;
     int32_t resp_len;
+    char *err;
+    int32_t err_len;
     int32_t rc;
 
     msg = 0;
@@ -217,14 +282,19 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
     while (rc == 0) {
         resp = 0;
         resp_len = 0;
-        rc = js_backend::Backend.eval(impl->js, msg, len, impl->eval_mode, &resp, &resp_len);
+        err = 0;
+        err_len = 0;
+        rc = js_backend::Backend.eval(impl->js, msg, len, impl->eval_mode,
+                                      &resp, &resp_len, &err, &err_len);
         if (rc == 0) {
             if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
                 impl->last_error = NX_E_BACKPRESSURE;
             }
         } else {
             impl->last_error = NX_E_INTERNAL;
+            push_script_error(impl, err, err_len);
         }
+        free(err);
         free(resp);
         free(msg);
         msg = 0;

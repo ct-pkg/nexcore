@@ -290,7 +290,36 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     return st;
 }
 
-int32_t eval(void *h, const char *src, int32_t len, int32_t mode, char **out, int32_t *out_len){
+/* 把引擎异常转成 malloc 文案交回调用方（宿主据此打印；库内不再吞掉）。 */
+static void set_error_out(char **err, int32_t *err_len, JSContext *ctx, JSValue ex)
+{
+    const char *s;
+    size_t n;
+
+    if (err == 0 || err_len == 0) {
+        JS_FreeValue(ctx, ex);
+        return;
+    }
+    *err = 0;
+    *err_len = 0;
+    s = JS_ToCStringLen(ctx, &n, ex);
+    if (s == 0) {
+        JS_FreeValue(ctx, ex);
+        return;
+    }
+    *err = malloc(n + 1);
+    if (*err != 0) {
+        memcpy(*err, s, n);
+        (*err)[n] = 0;
+        *err_len = (int32_t)n;
+    }
+    JS_FreeCString(ctx, s);
+    JS_FreeValue(ctx, ex);
+}
+
+int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
+             char **out, int32_t *out_len,
+             char **err, int32_t *err_len){
     struct BackendState *st;
     char *wrapped;
     char *copy;
@@ -303,6 +332,8 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode, char **out, in
     JSValue value;
     JSValue json;
 
+    if (err != 0) *err = 0;
+    if (err_len != 0) *err_len = 0;
     if (h == 0 || src == 0 || len < 0 || out == 0 || out_len == 0) return NXJB_ERR;
     st = h;
     *out = 0;
@@ -344,7 +375,7 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode, char **out, in
     free(wrapped);
     if (JS_IsException(value)) {
         value = JS_GetException(st->ctx);
-        JS_FreeValue(st->ctx, value);
+        set_error_out(err, err_len, st->ctx, value);
         return NXJB_ERR;
     }
 

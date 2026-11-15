@@ -7,7 +7,7 @@ namespace js_backend;
 
 pub trait Backend {
     void * init(const char * bootstrap_js, int32_t bootstrap_len, NxNativeCallFn native_call, void * native_user, const char * native_names, int32_t native_names_len);
-    int32_t eval(void * h, const char * src, int32_t len, int32_t mode, char ** out, int32_t * out_len);
+    int32_t eval(void * h, const char * src, int32_t len, int32_t mode, char ** out, int32_t * out_len, char ** err, int32_t * err_len);
     int32_t shutdown(void * h);
     void stats(void * h, int64_t * jobs, int64_t * exceptions);
     int32_t pump(void * h, int32_t max_jobs);
@@ -15,7 +15,7 @@ pub trait Backend {
 
 map trait Backend for namespace js_backend {
     init(bootstrap_js, bootstrap_len, native_call, native_user, native_names, native_names_len) -> js_backend_init(bootstrap_js, bootstrap_len, native_call, native_user, native_names, native_names_len);
-    eval(h, src, len, mode, out, out_len) -> js_backend_eval(h, src, len, mode, out, out_len);
+    eval(h, src, len, mode, out, out_len, err, err_len) -> js_backend_eval(h, src, len, mode, out, out_len, err, err_len);
     shutdown(h) -> js_backend_shutdown(h);
     stats(h, jobs, exceptions) -> js_backend_stats(h, jobs, exceptions);
     pump(h, max_jobs) -> js_backend_pump(h, max_jobs);
