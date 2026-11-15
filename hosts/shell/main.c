@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 
 #include "NexCore.h"
 
@@ -168,11 +169,96 @@ static void print_first_string(const char *args, size_t len)
 
 static int32_t on_native(void *user, const char *name, size_t name_len,
                          const char *args_json, size_t args_len,
+                         char **out_json, size_t *out_len);
+
+/*
+ * Shell.spawn(cmd)：同步执行 `/bin/sh -c cmd`，返回 {"code":N,"stdout":"..."}。
+ * 这是宿主能力，不进 ABI：通过 PH-10 的 Provider 尾字段注册（D4）。
+ * 异步/流式版本需要事件回投的新 ABI，登记 K-6，本 phase 不做。
+ */
+static int32_t spawn_json(const char *cmd, char **out_json, size_t *out_len)
+{
+    FILE *p;
+    struct Buf outb;
+    struct Buf b;
+    char chunk[4096];
+    char num[32];
+    size_t n;
+    int status;
+    int code;
+
+    p = popen(cmd, "r");
+    if (p == 0) return -1;
+    memset(&outb, 0, sizeof(outb));
+    while ((n = fread(chunk, 1, sizeof(chunk), p)) > 0) {
+        if (buf_add(&outb, chunk, n) != 0) {
+            pclose(p);
+            free(outb.p);
+            return -1;
+        }
+    }
+    status = pclose(p);
+    code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+    memset(&b, 0, sizeof(b));
+    snprintf(num, sizeof(num), "%d", code);
+    if (buf_add(&b, "{\"code\":", 8) != 0 ||
+        buf_add(&b, num, strlen(num)) != 0 ||
+        buf_add(&b, ",\"stdout\":", 10) != 0 ||
+        buf_json_str(&b, outb.p != 0 ? outb.p : "") != 0 ||
+        buf_add(&b, "}", 1) != 0) {
+        free(outb.p);
+        free(b.p);
+        return -1;
+    }
+    free(outb.p);
+    *out_json = b.p;
+    *out_len = b.len;
+    return 0;
+}
+
+/* 取 JSON 数组第一个字符串的原文（MVP 不解转义）；非字符串参数直接打印其字面量。 */
+static char *first_arg_string(const char *args, size_t len)
+{
+    size_t i;
+    size_t start;
+    char *out;
+
+    i = 0;
+    while (i < len && args[i] != '"') i++;
+    if (i >= len) return 0;
+    start = i + 1;
+    i = start;
+    while (i < len) {
+        if (args[i] == '\\' && i + 1 < len) {
+            i += 2;
+            continue;
+        }
+        if (args[i] == '"') break;
+        i++;
+    }
+    out = malloc(i - start + 1);
+    if (out == 0) return 0;
+    memcpy(out, args + start, i - start);
+    out[i - start] = 0;
+    return out;
+}
+
+static int32_t on_native(void *user, const char *name, size_t name_len,
+                         const char *args_json, size_t args_len,
                          char **out_json, size_t *out_len)
 {
     (void)user;
     if (name_len == 11 && memcmp(name, "Shell.print", 11) == 0) {
         print_first_string(args_json, args_len);
+    } else if (name_len == 11 && memcmp(name, "Shell.spawn", 11) == 0) {
+        char *cmd = first_arg_string(args_json, args_len);
+        int32_t rc;
+
+        if (cmd == 0) return -1;
+        rc = spawn_json(cmd, out_json, out_len);
+        free(cmd);
+        return rc;
     }
     *out_json = malloc(5);
     if (*out_json == 0) return -1;
@@ -240,7 +326,7 @@ fail:
 
 int main(int argc, char **argv)
 {
-    static const char NAMES[] = "[\"Shell.print\"]";
+    static const char NAMES[] = "[\"Shell.print\",\"Shell.spawn\"]";
     struct NexCoreConfig cfg;
     NexCoreHandle h = 0;
     char *script;
