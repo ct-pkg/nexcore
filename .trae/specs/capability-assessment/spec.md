@@ -98,7 +98,7 @@ ALL CHECKS PASSED
 - `podman machine start` → `RC=125`：`Error: unable to connect to "gvproxy" socket at "/var/folders/.../podman-machine-default-gvproxy.sock"`
 - 替代运行时：`docker` / `colima` / `lima` / `nerdctl` / `limactl` 全部 `absent`
 
-**额外结构性障碍**：`ct` 编译器是 `Mach-O 64-bit executable arm64`（`/Users/samxx/.local/bin/ct`，`ct v0.19.1`）。即使 podman VM 可用，Linux 容器内也无法直接执行该二进制，`check.sh` 与 `tests/smoke` 都依赖 `ct build`。容器验证需要先有 Linux 版 `ct`，这是工具链前置条件，不是本次跑不通的原因。
+**额外结构性障碍**：`ct` 编译器是 `Mach-O 64-bit executable arm64`（`/Users/samxx/.local/bin/ct`；版本以 `ct --version` 实测为准，本文不固定版本号）。即使 podman VM 可用，Linux 容器内也无法直接执行该二进制，`check.sh` 与 `tests/smoke` 都依赖 `ct build`。容器验证需要先有 Linux 版 `ct`，这是工具链前置条件，不是本次跑不通的原因。
 
 因此本次结论全部基于本机构建；未做 `podman machine reset` 等破坏性尝试。
 
