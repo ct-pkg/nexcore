@@ -1,0 +1,25 @@
+# fixture Schema —— 框架仓库自带的最小 Schema（宿主仓库用 schema/nexcore.schema.yaml）
+#
+# 唯一来源：本文件的字节决定 schema_hash（abi/schema-hash.txt、src/NexCore.ct 里的
+# 编译期常量、schema/generated/** 的文件头）。改这里必须同步三者，check.sh ⑬ 会拦。
+#
+# 生成器：tools/nexcore_schema_gen.py
+# 产物：schema/generated/{c,swift,kotlin,js}/
+schema_version: 1
+namespace: fixture
+records:
+  - name: EchoPayload
+    fields:
+      - name: text
+        type: string
+methods:
+  - name: echo
+    direction: ui2js
+    params:
+      - name: text
+        type: string
+    result: string
+  - name: ping
+    direction: js2ui
+    params: []
+    result: string

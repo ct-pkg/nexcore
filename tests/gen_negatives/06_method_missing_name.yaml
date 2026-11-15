@@ -1,0 +1,6 @@
+schema_version: 1
+namespace: fixture
+methods:
+  - direction: ui2js
+    params: []
+    result: string

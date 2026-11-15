@@ -1,0 +1,14 @@
+schema_version: 1
+namespace: fixture
+records:
+  - name: EchoPayload
+    fields:
+      - name: text
+        type: string
+      - name: text
+        type: int
+methods:
+  - name: echo
+    direction: ui2js
+    params: []
+    result: string

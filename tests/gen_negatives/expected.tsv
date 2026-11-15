@@ -1,0 +1,21 @@
+# 负例期望表：file<TAB>rule<TAB>line<TAB>说明（runner 只校验前三列）
+01_missing_schema_version.yaml	GEN-06	1	缺 schema_version
+02_bad_schema_version.yaml	GEN-06	1	schema_version != 1
+03_missing_namespace.yaml	GEN-06	1	缺 namespace
+04_bad_namespace.yaml	GEN-06	2	namespace 含 ::
+05_empty_methods.yaml	GEN-12	3	methods 为空
+06_method_missing_name.yaml	GEN-06	4	方法缺 name
+07_bad_method_name.yaml	GEN-06	4	方法名非法
+08_duplicate_method.yaml	GEN-20	8	重复 (ns,trait,method)
+09_method_too_long.yaml	GEN-06	4	超过 128 字节
+10_bad_direction.yaml	GEN-06	5	direction 非法
+11_param_missing_type.yaml	GEN-06	7	参数缺 type
+12_param_any_type.yaml	GEN-07	8	禁止 any
+13_duplicate_param.yaml	GEN-13	9	参数名冲突
+14_params_not_list.yaml	GEN-06	6	params 不是列表
+15_unknown_key.yaml	GEN-06	3	未知键
+16_record_use_trait.yaml	GEN-16	5	use 禁止跨 ABI
+17_record_nested_trait.yaml	GEN-16	7	按值嵌套带 trait
+18_bad_result_type.yaml	GEN-07	7	result 类型 object
+19_reserved_prefix.yaml	GEN-06	4	保留前缀
+20_duplicate_record_field.yaml	GEN-13	8	record 字段重名

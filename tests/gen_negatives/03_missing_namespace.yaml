@@ -1,0 +1,6 @@
+schema_version: 1
+methods:
+  - name: echo
+    direction: ui2js
+    params: []
+    result: string

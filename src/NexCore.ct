@@ -27,6 +27,25 @@ import js_backend::js_backend_map;
 #define NX_STAT_RESERVED_FIRST 10
 #define NX_STAT_RESERVED_LAST 14
 
+/*
+ * 编译进本库的 schema hash：唯一来源是 tests/fixture.schema.yaml（框架仓库）。
+ * 宿主集成时把这里换成宿主 schema 的 hash。三方一致性（Schema 字节 / abi/schema-hash.txt /
+ * 本常量）由 tools/schema_hash.py --check（check.sh ⑬）判定，不靠人眼。
+ */
+#define NEXCORE_SCHEMA_HASH "f7554c34c7bf46f8a896a76a779a96c5b1eedc29ce93539de2bebd6b7c4a45b2"
+
+/* schema_hash 为 NULL 时按 design §6.2 视为 debug 未提供，跳过校验。 */
+static int32_t schema_hash_matches(const char *want)
+{
+    int32_t i;
+
+    if (want == 0) return 1;
+    for (i = 0; i < (int32_t)(sizeof(NEXCORE_SCHEMA_HASH) - 1); i = i + 1) {
+        if (want[i] != NEXCORE_SCHEMA_HASH[i]) return 0;
+    }
+    return want[sizeof(NEXCORE_SCHEMA_HASH) - 1] == 0;
+}
+
 struct NexCoreHandleImpl {
     uint32_t magic;
     int32_t state;
@@ -77,6 +96,18 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         queue::Ring.close(ob);
         free(impl);
         return NX_E_INTERNAL;
+    }
+
+    /*
+     * schema hash 校验放在 JS 运行时建好之后：失败路径必须把 runtime/context、
+     * 两个队列和 impl 全部回收（ACC-A-11 用“同进程重试 create 成功”证明）。
+     */
+    if (!schema_hash_matches(cfg->schema_hash)) {
+        js_backend::Backend.shutdown(js);
+        queue::Ring.close(q);
+        queue::Ring.close(ob);
+        free(impl);
+        return NX_E_SCHEMA_MISMATCH;
     }
 
     impl->magic = NEXCORE_HANDLE_MAGIC;

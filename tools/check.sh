@@ -12,6 +12,7 @@
 #   * 新增检查项使用新编号，不复用旧编号；编号表见文件末尾注释。
 #
 # 检查项：0 / ①a ①b ①c / ②a ②b ②c / ③ / ④ / ⑤a ⑤b ⑤c / ⑥ / ⑦ / ⑧ / ⑨ / smoke / ⑩
+#         / ⑪ ⑫ ⑬ ⑭（P3：ABI 布局 golden、A-04 负例、schema hash、生成器）
 #
 # 用法：
 #   bash tools/check.sh        全量检查（上面的检查项）
@@ -473,8 +474,118 @@ if printf '%s\n' "$syms" | grep -v '^_nexcore_' >/dev/null; then
 fi
 echo "⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）"
 
-echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
+echo "== 11. ABI 布局 golden（ACC-A-10） =="
+# 基线来自实测：abi/abi-layout.txt 只能由 tools/abi_layout.py --write 用真实编译器产出。
+python3 tools/abi_layout.py --header "$ABI/NexCore.h" --golden abi/abi-layout.txt \
+  --emit "$ABI/abi-layout.txt" --check
+diff -u abi/abi-layout.txt "$ABI/abi-layout.txt"
+echo "⑪ ABI layout golden: PASS（$ABI/abi-layout.txt == abi/abi-layout.txt）"
 
+echo "== 12. ABI 冻结负例 + struct_size 协商（ACC-A-04） =="
+# 负例 A：插入字段但不升 abi_version —— golden 必须 diff。
+# 负例 B：两个同宽度字段互换 —— offset/size 都不变，只有 order= 行能拦，专门验证“重排可检”。
+mkdir -p "$ABI/mut/insert" "$ABI/mut/reorder"
+python3 - "$ABI/NexCore.h" "$ABI/mut/insert/NexCore.h" "$ABI/mut/reorder/NexCore.h" <<'PY'
+import pathlib
+import sys
+
+src = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+insert = src.replace(
+    "    uint32_t reserved;\n",
+    "    uint32_t reserved;\n    uint32_t abi_probe_extra;\n",
+)
+assert insert != src, "insert mutation did not apply"
+reorder = src.replace(
+    "    uint32_t flags;\n    uint32_t reserved;\n",
+    "    uint32_t reserved;\n    uint32_t flags;\n",
+)
+assert reorder != src, "reorder mutation did not apply"
+for target, text in ((sys.argv[2], insert), (sys.argv[3], reorder)):
+    path = pathlib.Path(target)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+PY
+for m in insert reorder; do
+  rc=0
+  python3 tools/abi_layout.py --header "$ABI/mut/$m/NexCore.h" --check \
+    >/dev/null 2>"$ABI/mut/$m.diff" || rc=$?
+  if [ "$rc" -ne 2 ]; then
+    echo "⑫ FAIL: 负例 $m 未被布局 golden 拦下（rc=$rc，期望 2）" >&2
+    cat "$ABI/mut/$m.diff" >&2
+    exit 1
+  fi
+done
+grep -q 'abi_probe_extra' "$ABI/mut/insert.diff" || {
+  echo "⑫ FAIL: 插入字段的 diff 里没有 abi_probe_extra" >&2
+  exit 1
+}
+grep -q 'order=.*reserved,flags' "$ABI/mut/reorder.diff" || {
+  echo "⑫ FAIL: 重排负例没有体现在 order= 行" >&2
+  exit 1
+}
+echo "⑫ layout drift negatives: PASS（插入 / 同宽度重排都必须 diff）"
+
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/config_negotiate.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/config_negotiate"
+"$BIN/config_negotiate"
+echo "⑫ struct_size 协商: PASS（<MIN / reserved!=0 / 版本不符拒绝；==MIN 与 >CURRENT 接受）"
+
+echo "== 13. Schema hash 三方一致 + 不匹配负例（ACC-A-11） =="
+python3 tools/schema_hash.py --check \
+  --schema tests/fixture.schema.yaml --golden abi/schema-hash.txt --c-source src/NexCore.ct
+python3 tools/schema_hash.py --emit-header "$ABI/schema_hash_test.h" \
+  --schema tests/fixture.schema.yaml
+"$CC" "${CFLAGS[@]}" \
+  -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+  tests/schema_mismatch.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/schema_mismatch"
+"$BIN/schema_mismatch"
+echo "⑬ schema hash: PASS（schema/golden/C 常量一致；错 hash 拒绝且重试成功）"
+
+echo "== 14. P3 生成器（Schema -> 四类产物） =="
+# 依赖 PyYAML：缺了必须 rc=2，不许装绿。
+if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+  echo "⑭ UNVERIFIED: 缺 PyYAML（python3 -m pip install --user 'pyyaml==6.0.1'），生成器门禁不可判定" >&2
+  exit 2
+fi
+python3 tools/nexcore_schema_gen.py --schema tests/fixture.schema.yaml \
+  --out schema/generated --check
+python3 tools/nexcore_schema_gen.py --negatives tests/gen_negatives \
+  --expect tests/gen_negatives/expected.tsv
+"$CC" "${CFLAGS[@]}" -I "$ABI" -I schema/generated/c \
+  -fsyntax-only schema/generated/c/nexcore_registry.c
+if grep -nE '#define[[:space:]]+[A-Za-z_]+\(' schema/generated/c/*; then
+  echo "⑭ FAIL: 生成 C 出现函数式宏（GEN-03）" >&2
+  exit 1
+fi
+python3 tools/scan_c.py schema/generated/c
+if grep -rnE '\b(eval|Proxy|dlsym|Mirror|kotlin-reflect|JSONSerialization|new Function)\b' \
+    schema/generated; then
+  echo "⑭ FAIL: 生成物出现禁止符号（GEN-04）" >&2
+  exit 1
+fi
+if grep -rnE '\b(Any|dynamic)\b|JsonElement' schema/generated/swift schema/generated/kotlin; then
+  echo "⑭ FAIL: 公开 API 出现 Any/dynamic/JsonElement（GEN-07）" >&2
+  exit 1
+fi
+if command -v swiftc >/dev/null 2>&1; then
+  swiftc -typecheck schema/generated/swift/*.swift
+  echo "⑭ Swift typecheck: PASS（swiftc -typecheck）"
+else
+  echo "⑭ Swift typecheck: UNVERIFIED（本机无 swiftc，不计通过）"
+fi
+echo "⑭ Kotlin compile: UNVERIFIED（本机无 kotlinc；按 P3 规划标不可验证，不进绿线）"
+if [ "$JS_BACKEND" = "quickjs" ]; then
+  "$CC" "${CFLAGS[@]}" -I "$SRC/js_backend" $QJS_INC \
+    tests/js_module_load.c $QJS_LIB -lm -o "$BIN/js_module_load"
+  "$BIN/js_module_load" schema/generated/js/nexcore_fixture.js
+  echo "⑭ JS module load: PASS（QuickJS 以 module 求值通过）"
+else
+  echo "⑭ JS module load: UNVERIFIED（NEXCORE_JS=null 不链接引擎，不计通过）"
+fi
+echo "⑭ P3 generator: PASS（5 产物无漂移、20/20 负例真红、生成 C 过 -Werror）"
+
+echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 # ---------------------------------------------------------------------------
 # 检查项编号表（新增项追加，不复用旧号）
 #   ⓪  generator drift：units.json 与 *_{map}.m.ct 生成物一致
@@ -493,4 +604,11 @@ echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 #   ⑧  bootstrap_js 真执行：bootstrap 定义 __ok，消息 "__ok" 经 QuickJS 求值后 sink 收到 42
 #   ⑨  drain 端到端：send → queue → QuickJS → outbox → sink，顺序/深度/关闭排空
 #   smoke 跨单元调用链：create → send → QuickJS → drain → sink，stat/shutdown/free
+#   ⑪  ABI 布局 golden：tools/abi_layout.py 用真实编译器实测 build/abi/NexCore.h，
+#       与 abi/abi-layout.txt 逐行一致（含 order= 行，同宽度重排也能拦）
+#   ⑫  ABI 冻结负例：插入字段 / 同宽度重排都必须产生 diff；config 协商运行时负例
+#   ⑬  Schema hash：tests/fixture.schema.yaml 字节 == abi/schema-hash.txt ==
+#       src/NexCore.ct 的 NEXCORE_SCHEMA_HASH；错 hash 拒绝且同进程重试成功
+#   ⑭  P3 生成器：Schema -> 5 个产物无漂移、20 条负例全部真红（规则+行号）、
+#       生成 C 过 -Werror；Swift 用 swiftc 判，Kotlin/无引擎时的 JS 标 UNVERIFIED
 # ---------------------------------------------------------------------------

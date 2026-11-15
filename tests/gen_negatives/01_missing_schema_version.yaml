@@ -1,0 +1,6 @@
+namespace: fixture
+methods:
+  - name: echo
+    direction: ui2js
+    params: []
+    result: string

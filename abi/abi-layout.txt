@@ -1,0 +1,62 @@
+# abi-layout v1 —— 由 tools/abi_layout.py 用 cc 实测发布头生成，不要手改
+# 值来自 sizeof/__alignof__/offsetof；type= 是头里的声明，用于人工核对
+[enum NxCode]
+  NX_OK = 0
+  NX_E_INVALID_ARGUMENT = 1
+  NX_E_INVALID_HANDLE = 2
+  NX_E_SHUTDOWN = 3
+  NX_E_BACKPRESSURE = 4
+  NX_E_PAYLOAD_TOO_LARGE = 5
+  NX_E_REENTRANT = 6
+  NX_E_THREAD = 7
+  NX_E_SCHEMA_MISMATCH = 8
+  NX_E_INTERNAL = 9
+  NX_E_BUSY = 10
+  NX_E_CLOSE_TIMEOUT = 11
+[enum NxAbi]
+  NEXCORE_ABI_VERSION = 1
+  NEXCORE_PROTOCOL_VERSION = 1
+[enum NxLimit]
+  NEXCORE_DEFAULT_TIMEOUT_MS = 5000
+  NEXCORE_DEFAULT_MAX_MESSAGE_BYTES = 1048576
+  NEXCORE_DEFAULT_MAX_PENDING = 1024
+  NEXCORE_MAX_METHOD_BYTES = 128
+[enum NxStatKey]
+  NX_STAT_INBOX_DEPTH = 1
+  NX_STAT_OUTBOX_DEPTH = 2
+  NX_STAT_PENDING_UI2JS = 3
+  NX_STAT_PENDING_JS2UI = 4
+  NX_STAT_DROPPED_LATE = 5
+  NX_STAT_MALFORMED = 6
+  NX_STAT_DROPPED_BACKPRESSURE = 7
+  NX_STAT_DROPPED_SHUTDOWN = 8
+  NX_STAT_CLOSE_BUDGET_EXCEEDED = 9
+  NX_STAT_JS_TURNS = 15
+  NX_STAT_JS_JOBS = 16
+  NX_STAT_JS_EXCEPTIONS = 17
+  NX_STAT_LAST_ERROR = 18
+  NX_STAT_NEXT_FREE = 19
+[enum NxConfigLayout]
+  NEXCORE_CONFIG_V1_SIZE = 72
+  NEXCORE_CONFIG_MIN_SIZE = 72
+  NEXCORE_CONFIG_CURRENT_SIZE = 88
+[typedef NexCoreHandle] size=8 align=8
+[typedef NexCoreSink] size=8 align=8
+[typedef NexCoreLog] size=8 align=8
+[struct NexCoreConfig] size=88 align=8
+  order=struct_size,abi_version,protocol_version,default_timeout_ms,max_message_bytes,max_pending,flags,reserved,now_ms,clock_user,schema_hash,bootstrap_js,bootstrap_len,log,log_user
+  struct_size type=uint32_t offset=0 size=4
+  abi_version type=uint32_t offset=4 size=4
+  protocol_version type=uint32_t offset=8 size=4
+  default_timeout_ms type=uint32_t offset=12 size=4
+  max_message_bytes type=uint32_t offset=16 size=4
+  max_pending type=uint32_t offset=20 size=4
+  flags type=uint32_t offset=24 size=4
+  reserved type=uint32_t offset=28 size=4
+  now_ms type=int64_t (*)(void *) offset=32 size=8
+  clock_user type=void * offset=40 size=8
+  schema_hash type=const char * offset=48 size=8
+  bootstrap_js type=const char * offset=56 size=8
+  bootstrap_len type=size_t offset=64 size=8
+  log type=NexCoreLog offset=72 size=8
+  log_user type=void * offset=80 size=8

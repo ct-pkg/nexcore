@@ -1,0 +1,17 @@
+schema_version: 1
+namespace: fixture
+records:
+  - name: Outer
+    fields:
+      - name: inner
+        type: Inner
+  - name: Inner
+    use: JsonCodec
+    fields:
+      - name: kind
+        type: string
+methods:
+  - name: echo
+    direction: ui2js
+    params: []
+    result: string

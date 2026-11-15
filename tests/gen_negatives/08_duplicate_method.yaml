@@ -1,0 +1,11 @@
+schema_version: 1
+namespace: fixture
+methods:
+  - name: echo
+    direction: ui2js
+    params: []
+    result: string
+  - name: echo
+    direction: js2ui
+    params: []
+    result: string
