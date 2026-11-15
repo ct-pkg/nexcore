@@ -19,6 +19,11 @@ namespace js_backend;
 
 #define NXJB_OK 0
 #define NXJB_ERR -1
+/* job 内抛错：与普通求值失败区分，调用方据此累加 JS_EXCEPTIONS（红队 A6）。 */
+#define NXJB_JOB_THREW -2
+
+/* job 队列有界泵的硬上限：自续链（job 里再排 job）必须停下来。 */
+#define NXJB_PUMP_CAP 10000
 
 /* 只在本单元内使用：runtime/context 的生命周期由 init/shutdown 成对管理。 */
 struct BackendState {
@@ -32,6 +37,8 @@ struct BackendState {
     int32_t native_names_len;
     char **names;
     int32_t names_count;
+    int64_t jobs;
+    int64_t exceptions;
 }
 
 /*
@@ -215,6 +222,22 @@ static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, J
     return ret;
 }
 
+/*
+ * 未处理 Promise 拒绝的计数（E1d）：QuickJS 把 job 内的 throw 变成「被拒绝的 Promise」，
+ * 不会让 JS_ExecutePendingJob 返回错误，因此必须用 host 拒绝追踪器采样。
+ */
+static void on_rejection(JSContext *ctx, JSValueConst promise, JSValueConst reason,
+                         JS_BOOL is_handled, void *opaque)
+{
+    struct BackendState *st;
+
+    (void)ctx;
+    (void)promise;
+    (void)reason;
+    st = opaque;
+    if (st != 0 && !is_handled) st->exceptions = st->exceptions + 1;
+}
+
 void *init(const char *bootstrap_js, int32_t bootstrap_len,
            int32_t (*native_call)(void *user, const char *name, size_t name_len,
                                   const char *args_json, size_t args_len,
@@ -232,11 +255,14 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     st->native_user = native_user;
     st->native_names = native_names;
     st->native_names_len = native_names_len;
+    st->jobs = 0;
+    st->exceptions = 0;
     st->rt = JS_NewRuntime();
     if (st->rt == 0) {
         free(st);
         return 0;
     }
+    JS_SetHostPromiseRejectionTracker(st->rt, on_rejection, st);
     st->ctx = JS_NewContext(st->rt);
     if (st->ctx == 0) {
         free_state(st);
@@ -261,14 +287,14 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     return st;
 }
 
-int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len)
-{
+int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len){
     struct BackendState *st;
     char *wrapped;
     char *copy;
     const char *s;
     size_t slen;
     int32_t i;
+    int32_t prc;
     JSValue value;
     JSValue json;
 
@@ -280,8 +306,11 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
     /*
      * 进入下一条消息前先把 job 队列清空（D-05：job 清空前不处理 inbox）。
      * bootstrap 与上一条消息排下的回调都在这里生效，否则新消息会读到旧状态。
+     * 泵出错不吞：job 内抛错 → 本次消息判为 NXJB_JOB_THREW，由上层累加 JS_EXCEPTIONS。
      */
-    (void)pump(h, 0);
+    prc = pump(h, 0);
+    if (prc == NXJB_JOB_THREW) return NXJB_JOB_THREW;
+    if (prc < 0) return NXJB_ERR;
 
     /* 包一层括号：`{"id":1}` 作为脚本会被当成块语句，作为表达式才是对象字面量。 */
     wrapped = malloc((size_t)len + 3);
@@ -328,20 +357,33 @@ int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out_len
     JS_FreeCString(st->ctx, s);
     JS_FreeValue(st->ctx, json);
     /* 求值后泵到空：Promise 回调的副作用必须在下一条消息之前生效（D-05 顺序）。 */
-    (void)pump(h, 0);
+    prc = pump(h, 0);
+    if (prc == NXJB_JOB_THREW) return NXJB_JOB_THREW;
+    if (prc < 0) return NXJB_ERR;
     return NXJB_OK;
 }
 
 int32_t shutdown(void *h)
 {
     if (h == 0) return NXJB_ERR;
+    /* 收尾泵：释放 runtime 前把最后一条消息排下的 job 跑掉，避免静默丢弃。 */
+    (void)pump(h, NXJB_PUMP_CAP);
     free_state(h);
     return NXJB_OK;
 }
 
-int32_t turns(void)
+void stats(void *h, int64_t *jobs, int64_t *exceptions)
 {
-    return 1;
+    struct BackendState *st;
+
+    if (h == 0) {
+        if (jobs != 0) *jobs = 0;
+        if (exceptions != 0) *exceptions = 0;
+        return;
+    }
+    st = h;
+    if (jobs != 0) *jobs = st->jobs;
+    if (exceptions != 0) *exceptions = st->exceptions;
 }
 
 /*
@@ -360,7 +402,7 @@ int32_t pump(void *h, int32_t max_jobs)
     if (h == 0) return NXJB_ERR;
     st = h;
     limit = max_jobs;
-    if (limit <= 0) limit = 0x7fffffff;
+    if (limit <= 0) limit = NXJB_PUMP_CAP;
     ran = 0;
     ctx = 0;
     while (ran < limit) {
@@ -368,10 +410,12 @@ int32_t pump(void *h, int32_t max_jobs)
         if (rc < 0) {
             ex = JS_GetException(st->ctx);
             JS_FreeValue(st->ctx, ex);
-            return NXJB_ERR;
+            st->exceptions = st->exceptions + 1;
+            return NXJB_JOB_THREW;
         }
         if (rc == 0) break;
         ran = ran + 1;
+        st->jobs = st->jobs + 1;
     }
     return ran;
 }

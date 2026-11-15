@@ -252,3 +252,6 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 
 **返工范围**：T1–T6 已落地的实现需按 C1–C8 返工（T7 不受影响）；返工提交紧随本卡修订之后，仍按「红证 → 实现」成对提交。
 | PH10-T3r | `6094568` | 把 `NexCore.ct` 的阈值临时改成字面的 `struct_size >= 88` 后跑 `tests/native_provider.c`（五档保护页夹具） | 无输出即被信号终止：`rc=138`（SIGBUS，88 档踩 PROT_NONE 页） | 138 | 2026-11-15 |
+
+| PH10-T1r | `4dc4c84` | 把泵改回无界（`limit = 0x7fffffff`）、去掉 shutdown 收尾泵后跑 `tests/pump_microtask.c` | `C: bounded...` 不出现即挂死；`rc=142`（SIGALRM，alarm(5) 兜底） | 142 | 2026-11-15 |
+| PH10-T1s | `4dc4c84` | 同上环境跑 `tests/pump_bounds.c`（白盒） | `B: after shutdown bumps=1` / `FAIL: shutdown 未补齐剩余 job（期望 bumps=3）` | 4 | 2026-11-15 |

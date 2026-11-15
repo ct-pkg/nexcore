@@ -10,7 +10,7 @@
       "namespace": "js_backend",
       "trait": "Backend",
       "source": "js_backend/js_backend.h.ct",
-      "methods": ["init", "eval", "shutdown", "turns", "pump"]
+      "methods": ["init", "eval", "shutdown", "stats", "pump"]
     }
   ]
 }

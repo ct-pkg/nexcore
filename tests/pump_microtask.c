@@ -10,6 +10,7 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "NexCore.h"
 
@@ -111,6 +112,71 @@ int main(void)
 
     if (nexcore_shutdown(h) != NX_OK) return 9;
     if (nexcore_free(h) != NX_OK) return 10;
+
+    /* C：有界性（E1b）。自续链在无界实现里会永久挂死；alarm 兜底给出可判定的退出码。 */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.struct_size = (uint32_t)sizeof(cfg);
+    cfg.abi_version = NEXCORE_ABI_VERSION;
+    cfg.protocol_version = NEXCORE_PROTOCOL_VERSION;
+    cfg.default_timeout_ms = NEXCORE_DEFAULT_TIMEOUT_MS;
+    cfg.max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
+    cfg.max_pending = NEXCORE_DEFAULT_MAX_PENDING;
+    cfg.bootstrap_js = "var f=function(){Promise.resolve().then(f);}; f();";
+    cfg.bootstrap_len = strlen(cfg.bootstrap_js);
+
+    alarm(5);
+    h = 0;
+    rc = nexcore_create(&cfg, &h);
+    if (rc != NX_OK || h == 0) return 16;
+    if (nexcore_set_sink(h, &sink, on_response) != NX_OK) return 17;
+    rc = ask(h, &sink, "1+1", &got);
+    alarm(0);
+    printf("C: bounded self-renewing chain rc=%d val=%s\n", (int)rc, rc == NX_OK ? got : "<none>");
+    if (rc != NX_OK || strcmp(got, "2") != 0) {
+        printf("FAIL: self-renewing chain did not return (pump unbounded)\n");
+        nexcore_shutdown(h);
+        nexcore_free(h);
+        return 18;
+    }
+    if (nexcore_shutdown(h) != NX_OK) return 19;
+    if (nexcore_free(h) != NX_OK) return 20;
+
+    /* D：job 抛错不得静默（E1d）。下一条消息应失败，且 JS_EXCEPTIONS 有真实采样。 */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.struct_size = (uint32_t)sizeof(cfg);
+    cfg.abi_version = NEXCORE_ABI_VERSION;
+    cfg.protocol_version = NEXCORE_PROTOCOL_VERSION;
+    cfg.default_timeout_ms = NEXCORE_DEFAULT_TIMEOUT_MS;
+    cfg.max_message_bytes = NEXCORE_DEFAULT_MAX_MESSAGE_BYTES;
+    cfg.max_pending = NEXCORE_DEFAULT_MAX_PENDING;
+    cfg.bootstrap_js = "Promise.resolve().then(function(){throw new Error('boom');});";
+    cfg.bootstrap_len = strlen(cfg.bootstrap_js);
+
+    h = 0;
+    rc = nexcore_create(&cfg, &h);
+    if (rc != NX_OK || h == 0) return 21;
+    if (nexcore_set_sink(h, &sink, on_response) != NX_OK) return 22;
+    memset(&sink, 0, sizeof(sink));
+    nexcore_send(h, "1+1", 3);
+    {
+        int32_t count = -1;
+        int64_t sev = -1;
+
+        nexcore_drain(h, 0, &count);
+        nexcore_stat(h, NX_STAT_JS_EXCEPTIONS, &sev);
+        printf("D: job threw -> delivered=%d js_exceptions=%d\n", sink.count, (int)sev);
+        /* QuickJS 把 job 内 throw 变成被拒绝的 Promise：消息本身照常返回，
+         * 但未处理拒绝必须被计数（否则就是静默吞错）。 */
+        if (sink.count != 1 || sev < 1) {
+            printf("FAIL: job exception swallowed (delivered=%d, exceptions=%d)\n",
+                   sink.count, (int)sev);
+            nexcore_shutdown(h);
+            nexcore_free(h);
+            return 23;
+        }
+    }
+    if (nexcore_shutdown(h) != NX_OK) return 24;
+    if (nexcore_free(h) != NX_OK) return 25;
 
     printf("PUMP OK\n");
     return 0;

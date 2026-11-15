@@ -201,7 +201,8 @@ static void pump_inbox(struct NexCoreHandleImpl *impl)
     while (rc == 0) {
         resp = 0;
         resp_len = 0;
-        if (js_backend::Backend.eval(impl->js, msg, len, &resp, &resp_len) == 0) {
+        rc = js_backend::Backend.eval(impl->js, msg, len, &resp, &resp_len);
+        if (rc == 0) {
             if (queue::Ring.push(impl->outbox, resp, resp_len) != 0) {
                 impl->last_error = NX_E_BACKPRESSURE;
             }
@@ -312,6 +313,8 @@ int32_t nexcore_free(NexCoreHandle h)
 int32_t nexcore_stat(NexCoreHandle h, int32_t key, int64_t *out)
 {
     struct NexCoreHandleImpl *impl;
+    int64_t s_jobs;
+    int64_t s_exc;
 
     if (h == 0) return NX_E_INVALID_HANDLE;
     impl = h;
@@ -331,12 +334,16 @@ int32_t nexcore_stat(NexCoreHandle h, int32_t key, int64_t *out)
         return NX_OK;
     }
     /* 已实现但尚未采样的键：明确写 0。 */
+    if (key == NX_STAT_JS_JOBS || key == NX_STAT_JS_EXCEPTIONS) {
+        js_backend::Backend.stats(impl->js, &s_jobs, &s_exc);
+        *out = (key == NX_STAT_JS_JOBS) ? s_jobs : s_exc;
+        return NX_OK;
+    }
     if (key == NX_STAT_PENDING_UI2JS ||
         key == NX_STAT_PENDING_JS2UI || key == NX_STAT_DROPPED_LATE ||
         key == NX_STAT_MALFORMED || key == NX_STAT_DROPPED_BACKPRESSURE ||
         key == NX_STAT_DROPPED_SHUTDOWN || key == NX_STAT_CLOSE_BUDGET_EXCEEDED ||
-        key == NX_STAT_JS_TURNS || key == NX_STAT_JS_JOBS ||
-        key == NX_STAT_JS_EXCEPTIONS) {
+        key == NX_STAT_JS_TURNS) {
         *out = 0;
         return NX_OK;
     }

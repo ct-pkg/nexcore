@@ -57,9 +57,11 @@ int32_t shutdown(void *h)
     return NXJB_OK;
 }
 
-int32_t turns(void)
+void stats(void *h, int64_t *jobs, int64_t *exceptions)
 {
-    return 0;
+    (void)h;
+    if (jobs != 0) *jobs = 0;
+    if (exceptions != 0) *exceptions = 0;
 }
 
 /* 空实现没有引擎，也就没有 job 队列。 */

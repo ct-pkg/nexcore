@@ -9,7 +9,7 @@ pub trait Backend {
     void * init(const char * bootstrap_js, int32_t bootstrap_len, NxNativeCallFn native_call, void * native_user, const char * native_names, int32_t native_names_len);
     int32_t eval(void * h, const char * src, int32_t len, char ** out, int32_t * out_len);
     int32_t shutdown(void * h);
-    int32_t turns(void);
+    void stats(void * h, int64_t * jobs, int64_t * exceptions);
     int32_t pump(void * h, int32_t max_jobs);
 }
 
@@ -17,6 +17,6 @@ map trait Backend for namespace js_backend {
     init(bootstrap_js, bootstrap_len, native_call, native_user, native_names, native_names_len) -> js_backend_init(bootstrap_js, bootstrap_len, native_call, native_user, native_names, native_names_len);
     eval(h, src, len, out, out_len) -> js_backend_eval(h, src, len, out, out_len);
     shutdown(h) -> js_backend_shutdown(h);
-    turns() -> js_backend_turns();
+    stats(h, jobs, exceptions) -> js_backend_stats(h, jobs, exceptions);
     pump(h, max_jobs) -> js_backend_pump(h, max_jobs);
 }

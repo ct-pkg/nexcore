@@ -32,7 +32,12 @@ pub int32_t eval(void *h, const char *src, int32_t len, char **out, int32_t *out
 
 pub int32_t shutdown(void *h);
 
-pub int32_t turns(void);
+/*
+ * 自上次调用以来累计的 job 执行数与未处理 Promise 拒绝数。
+ * 替换原来的 turns()（无调用者的僵尸方法，PH-10 C7）：NexCore 的
+ * NX_STAT_JS_JOBS / NX_STAT_JS_EXCEPTIONS 由此采样，不再是常量 0。
+ */
+pub void stats(void *h, int64_t *jobs, int64_t *exceptions);
 
 /*
  * 把 runtime 的 job 队列泵到空，或泵满 max_jobs 个（max_jobs <= 0 视为「泵到空」）。

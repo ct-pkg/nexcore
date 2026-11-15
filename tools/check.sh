@@ -633,7 +633,11 @@ if [ "$JS_BACKEND" = "quickjs" ]; then
     -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
     tests/pump_microtask.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/pump_microtask"
   "$BIN/pump_microtask" || { echo "⑮ FAIL: 微任务未被泵到（Promise 回调不可见）" >&2; exit 1; }
-  echo "⑮ microtask pump: PASS（hits=1、两级链 n=2）"
+  "$CC" "${CFLAGS[@]}" \
+    -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
+    tests/pump_bounds.c "$IMPL"/*.c $QJS_LIB -lm -lpthread -o "$BIN/pump_bounds"
+  "$BIN/pump_bounds" || { echo "⑮ FAIL: 泵边界（max_jobs / shutdown 收尾）不成立" >&2; exit 1; }
+  echo "⑮ microtask pump: PASS（hits=1、两级链 n=2、有界、max_jobs、收尾泵）"
 else
   echo "⑮ microtask pump: N/A (NEXCORE_JS=null：无引擎，不计通过)"
 fi
