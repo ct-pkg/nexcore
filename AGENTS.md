@@ -266,7 +266,7 @@ AI_ENGINEERING_SPEC=<主规范路径> ...          # 覆盖默认主规范位置
 | 文档 snippet | 无（未启用 `docs/snippets/`） |
 | Issue 台账 | 无（`issues/` 尚未建立） |
 | 决策记录 | `docs/decisions.md`（单文件台账） |
-| 版本落点 | `docs/README.md` 的「状态：v0.9」一行（6.7） |
+| 版本落点 | `docs/README.md` 的「- 状态：v<MAJOR>.<MINOR>.<PATCH>（…）」一行（6.7） |
 | 偏离项 | 无 |
 
 ### 0.2 话术路由
