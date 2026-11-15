@@ -15,8 +15,10 @@
 
 #include "NexCore.h"
 
-/* 与库投递的 $error 前缀逐字节一致（见 src/NexCore.ct push_script_error）。 */
-static const char ERROR_PREFIX[] = "{\"code\":\"E_JS_EXCEPTION\"";
+/* 库投递的 $error 信封统一以 {"code":"E_ 开头（E_JS_EXCEPTION / E_TIMEOUT /
+ * E_INTERRUPTED…，见 src/NexCore.ct push_script_error）。宿主只按信封形状
+ * 识别错误，不枚举具体码——具体码的分支留给调用方（protocol.md §4）。 */
+static const char ERROR_PREFIX[] = "{\"code\":\"E_";
 
 static volatile sig_atomic_t g_sigint = 0;
 
