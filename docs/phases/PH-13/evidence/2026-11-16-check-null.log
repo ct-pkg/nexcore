@@ -1,0 +1,137 @@
+== 0. generator drift ==
+generator drift: PASS
+== 1. Pass 1: publish header (only NexCore.h.ct) ==
+cc -std=c99 -I build/abi build/abi/NexCore.c -o a.out
+①a publish header: PASS (exit 0, non-empty)
+== 1b/1c. header struct model (shared normalization) ==
+①b publish header structs: ['NexCoreConfig'] : PASS
+== 1c. forward-decl golden ==
+①c forward-decls golden: PASS
+== 2. Pass 2: implementation ==
+cc -std=c99 -I build/impl build/impl/NexCore.c build/impl/NexCore.c build/impl/queue.c build/impl/queue.c build/impl/js_backend.c build/impl/js_backend.c build/impl/protocol.c build/impl/protocol.c -o a.out
+②a implementation: PASS (exit 0)
+②a implementation artifacts: PASS (4/4 non-empty .c)
+== 2b. strict cc per implementation .c ==
+②b cc -Werror=implicit-function-declaration: PASS (4 files)
+== 2c. exported ABI symbols (nm, all 7) ==
+②c exported ABI symbols: PASS (7/7, T; Mach-O 前导下划线已兼容)
+== 3. no '::' in generated C ==
+③ generated C has no '::': PASS (4 files)
+== 4. recipe callee == symbol-table cname (inside generator) ==
+④ recipe callee == symbol cname: PASS (10 recipes)
+== 5a. unit imports: mandatory self import + whitelist (map included) ==
+⑤a unit imports: PASS (8 files; 实现单元强制 self import + 只允许自身 .h.ct / <ns>::<ns>_map；映射单元按 .m.ct 识别)
+== 5b. units.json <-> .h.ct pub functions parity ==
+⑤b units.json parity: PASS (2 units)
+== ⑤c boundaries (tools/check-boundaries.sh) ==
+boundaries: PASS（19 个文件，无 #if / 无 errno / import 顺序正确）
+== 6. stat key contract ==
+stat(10) rc=9 out=-424242
+stat(11) rc=9 out=-424242
+stat(12) rc=9 out=-424242
+stat(13) rc=9 out=-424242
+stat(14) rc=9 out=-424242
+stat(  0) rc=1 out=-7
+stat( 19) rc=1 out=-7
+stat( 20) rc=1 out=-7
+stat(1024) rc=1 out=-7
+stat( 1) rc=0 out=1
+stat(18) rc=0 out=0
+stat(15) rc=0 out=0
+STAT KEYS OK
+⑥ stat key contract: PASS
+== 7. queue FIFO ==
+QUEUE FIFO OK
+⑦ queue FIFO: PASS
+⑧ bootstrap_js executed: SKIP (NEXCORE_JS=null：空后端不求值，不计通过)
+⑨ drain -> sink: SKIP (NEXCORE_JS=null：空后端不产出响应，不计通过)
+smoke: SKIP (NEXCORE_JS=null：端到端依赖 JS 求值，不计通过)
+   JS 语义检查（⑧⑨/smoke）在 null 档不覆盖（D-21）；quickjs 档真跑
+== 10. libnexcore 产物面（依赖 + 符号） ==
+ar t libnexcore.a:
+__.SYMDEF SORTED
+js_backend.o
+NexCore.o
+protocol.o
+queue.o
+otool -L:
+build/bin/libnexcore.dylib:
+	build/bin/libnexcore.dylib (compatibility version 0.0.0, current version 0.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.40.3)
+nm -gU T:
+_nexcore_create
+_nexcore_drain
+_nexcore_free
+_nexcore_send
+_nexcore_set_sink
+_nexcore_shutdown
+_nexcore_stat
+⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）
+== 11. ABI 布局 golden（ACC-A-10） ==
+abi-layout: PASS（实测 == abi/abi-layout.txt，77 行）
+⑪ ABI layout golden: PASS（build/abi/abi-layout.txt == abi/abi-layout.txt）
+== 12. ABI 冻结负例 + struct_size 协商（ACC-A-04） ==
+⑫ layout drift negatives: PASS（插入 / 同宽度重排都必须 diff）
+struct_size = MIN-1          rc=1 out=0x0
+reserved != 0                rc=1 out=0x0
+abi_version + 1              rc=1 out=0x0
+struct_size = MIN            rc=0 out=0x7aa9010cc0
+struct_size = CURRENT+64     rc=0 out=0x7aa9010cc0
+struct_size = CURRENT        rc=0 out=0x7aa9010cc0
+CONFIG NEGOTIATION OK
+⑫ struct_size 协商: PASS（<MIN / reserved!=0 / 版本不符拒绝；==MIN 与 >CURRENT 接受）
+== 13. Schema hash 三方一致 + 不匹配负例（ACC-A-11） ==
+schema-hash: PASS（Schema/golden/C 常量三方一致 f7554c34c7bf…）
+wrote build/abi/schema_hash_test.h (f7554c34c7bf…)
+expected hash: f7554c34c7bf…  wrong hash: 07554c34c7bf…
+create(wrong hash)  rc=8 out=0x0
+create(retry good)  rc=0 out=0x762f040680
+create(NULL hash)   rc=0 out=0x762f040680
+SCHEMA MISMATCH OK
+⑬ schema hash: PASS（schema/golden/C 常量一致；错 hash 拒绝且重试成功）
+== 14. P3 生成器（Schema -> 四类产物） ==
+nexcore-gen-schema: PASS（5 个产物与 Schema 一致）
+  red tests/gen_negatives/01_missing_schema_version.yaml:1: GEN-06 缺少 schema_version
+  red tests/gen_negatives/02_bad_schema_version.yaml:1: GEN-06 schema_version 必须是整数 1
+  red tests/gen_negatives/03_missing_namespace.yaml:1: GEN-06 缺少 namespace
+  red tests/gen_negatives/04_bad_namespace.yaml:2: GEN-06 namespace 'fixture::core' 不是合法标识符（^[a-z][a-z0-9_]*$）
+  red tests/gen_negatives/05_empty_methods.yaml:3: GEN-12 methods 为空：无法生成四类产物
+  red tests/gen_negatives/06_method_missing_name.yaml:4: GEN-06 methods[0] 缺 name
+  red tests/gen_negatives/07_bad_method_name.yaml:4: GEN-06 methods[0].name 'echo()' 不是合法标识符（^[a-z][a-z0-9_]*$）
+  red tests/gen_negatives/08_duplicate_method.yaml:8: GEN-20 方法 'echo' 重复（(ns, trait, method) key 冲突）
+  red tests/gen_negatives/09_method_too_long.yaml:4: GEN-06 methods[0].name 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' 超过 128 字节上限
+  red tests/gen_negatives/10_bad_direction.yaml:5: GEN-06 direction 'sideways' 必须是 ui2js 或 js2ui
+  red tests/gen_negatives/11_param_missing_type.yaml:7: GEN-06 params[0] 缺 type
+  red tests/gen_negatives/12_param_any_type.yaml:8: GEN-07 methods[0].params[0].type 类型 'any' 在禁止名单（GEN-07：无 Any/JSON 擦除）
+  red tests/gen_negatives/13_duplicate_param.yaml:9: GEN-13 方法 'echo' 的参数名 'text' 与第 0 个参数冲突
+  red tests/gen_negatives/14_params_not_list.yaml:6: GEN-06 methods[0].params 必须是列表
+  red tests/gen_negatives/15_unknown_key.yaml:3: GEN-06 根节点 出现未知键 'methodz'（允许: ['methods', 'namespace', 'records', 'schema_version']）
+  red tests/gen_negatives/16_record_use_trait.yaml:5: GEN-16 record 'Codec' 使用 'use'：trait 禁止跨 ABI（会追加隐藏 vptr）
+  red tests/gen_negatives/17_record_nested_trait.yaml:7: GEN-16 records[0].inner 按值嵌套了带 trait 的 record Inner
+  red tests/gen_negatives/18_bad_result_type.yaml:7: GEN-07 methods[0].result 类型 'object' 在禁止名单（GEN-07：无 Any/JSON 擦除）
+  red tests/gen_negatives/19_reserved_prefix.yaml:4: GEN-06 methods[0].name 'nexcore_run' 使用了生成器/ABI 保留前缀
+  red tests/gen_negatives/20_duplicate_record_field.yaml:8: GEN-13 record 字段 'text' 与第 0 个字段冲突
+⑭ schema negatives: PASS (20/20 条均为真红，规则与行号匹配)
+dispatch before register rc=9
+dispatch echo rc=0 calls=1 out=hello
+dispatch ping rc=0 calls=1
+dispatch echo argc=0 rc=1
+dispatch unknown rc=1
+dispatch(echo) rc=0 param_count=1
+dispatch(ping) rc=0 param_count=0
+GEN REGISTRY BEHAVIOR OK
+⑭ registry 行为: PASS（wrapper/adaptor/dispatch 三层都真调 provider，单次派发）
+⑭ GEN-16 跨单元取址: PASS（编译期拒绝，错误信息指向 queue_push）
+③ generated C has no '::': PASS (1 files)
+⑭ Swift typecheck: PASS（swiftc -typecheck）
+⑭ Kotlin compile: UNVERIFIED（本机无 kotlinc；按 P3 规划标不可验证，不进绿线）
+⑭ JS module load: UNVERIFIED（NEXCORE_JS=null 不链接引擎，不计通过）
+⑭ P3 generator: PASS（5 产物无漂移、20/20 负例真红、生成 C 过 -Werror）
+== 15. 微任务泵（PH-10 E1：宿主经 send+drain 可观察 Promise） ==
+⑮ microtask pump: N/A (NEXCORE_JS=null：无引擎，不计通过)
+== 16. 原生 Provider 注册（PH-10 E3：注册可用 + 向后兼容） ==
+⑯ native provider: N/A (NEXCORE_JS=null：无引擎，不计通过)
+== 17. 静态归档（PH-10 E5：libnexcore.a 可独立链接） ==
+⑰ archive: N/A-RUN (NEXCORE_JS=null：可链接，JS 语义不在本档覆盖)
+ALL CHECKS PASSED (NEXCORE_JS=null)
+bash tools/check.sh  3.38s user 4.64s system 70% cpu 11.412 total

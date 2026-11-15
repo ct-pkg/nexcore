@@ -1,0 +1,6 @@
+cc -std=c99 -Wall -Wextra -Werror -Werror=implicit-function-declaration  -I    0.16s user 0.26s system 73% cpu 0.565 total
+drain rc=0 delivered=1 last_error=9 payload={"code":"E_JS_EXCEPTION","message":"timeout: evaluation exceeded budget"}
+drain rc=0 delivered=1 last_error=9 payload={"code":"E_JS_EXCEPTION","message":"InternalError: interrupted"}
+polls=5
+INTERRUPT OK
+./build/bin/interrupt  0.20s user 0.01s system 44% cpu 0.469 total

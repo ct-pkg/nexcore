@@ -153,3 +153,37 @@ void *interrupt_user;
 | K-4 | 求值期间 SIGINT | **关闭**：库层中断钩子 + 宿主接线，E3 可判定 |
 | K-6 | 异步/流式 `Shell.spawn`（stdout 流式、事件回投）需新 ABI | 挂账；需另开 ABI 评审，本 phase 只定「不进 ABI」这一面 |
 | K-7 | 中断/超时的 `LAST_ERROR` 仍是 `NX_E_INTERNAL` | 受 K-3 约束；宿主用 `$error.message` 区分 |
+
+---
+
+## 11. 仓库根补跑记录（2026-11-16）
+
+**为什么补跑**：§8 记「仓库根 `build/` 被封存，实跑在 `/tmp/nx13`」，§9 的 E1–E6 全部来自副本。本节把同一套命令搬回仓库根重跑一遍，使证据在仓库本体内可复现。**只补记录，不改 §5 判据、§9 既有证据、§6/§10 遗留项。**
+
+**环境说明（如实记录）**
+
+- 仓库根 `build/` 当时**不存在**（不残留任何产物），无需解封：`tools/check.sh` 自带 `rm -rf build/abi build/impl build/bin` + `mkdir -p`，直接跑即重建。
+- 缺的是引擎依赖 `experiments/third_party/quickjs/libquickjs.a`（`.gitignore` 忽略，只在副本里有）。按 `check.sh` 的提示先跑 `bash experiments/build.sh` 重建（QuickJS 2025-09-13），rc=0。
+- 原始输出全部归档于本卡同目录 `evidence/`，文件名前缀 `2026-11-16-`。
+
+| # | 判据 | 命令 | rc | 关键原始输出（节选） | 与 §9 对照 |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 预算能中断求值 | `./build/bin/interrupt`（用例 A，`default_timeout_ms=200`） | 0 | `drain rc=0 delivered=1 last_error=9 payload={"code":"E_JS_EXCEPTION","message":"timeout: evaluation exceeded budget"}` | 一致 |
+| E2 | 宿主回调能中断 | 同夹具用例 B（回调第 5 次返回 1） | 0 | `payload={"code":"E_JS_EXCEPTION","message":"InternalError: interrupted"}` / `polls=5` / `INTERRUPT OK` | 一致 |
+| E3 | Ctrl-C 真能停 | `./build/bin/nex forever.nexjs` + 100ms 后 `kill -INT` | 130（进程退出码） | `E3 kill-INT rc=130 elapsed_ms=7`；`check-host.sh` 的 1.5s 存活探针未触发 `FAIL` | 一致 |
+| E3b | 预算在宿主侧可判 | `NEX_TIMEOUT_MS=200 ./build/bin/nex forever.nexjs` | 1 | stderr `{"code":"E_JS_EXCEPTION","message":"timeout: evaluation exceeded budget"}` | 一致 |
+| E4 | `Shell.spawn` 可用 | `nex spawn.nexjs` / `nex spawn_code.nexjs` | 0 | `E4 spawn_stdout=hi` / `E4 spawn_code=3` | 一致 |
+| E5 | ABI 面未破 | quickjs 档 `⑩` / `grep -c spawn abi/abi-layout.txt` | 0 | `⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）` / `0` | 一致 |
+| E6 | 全量门禁 | `bash tools/check.sh`（null）、`NEXCORE_JS=quickjs bash tools/check.sh`、`bash tools/check-host.sh` | 0 / 0 / 0 | `ALL CHECKS PASSED (NEXCORE_JS=null)`、`ALL CHECKS PASSED (NEXCORE_JS=quickjs)`、`HOST OK`；null 档 SKIP=3 | 一致 |
+
+**耗时（仓库根，本机 macOS）**
+
+| 命令 | 墙钟 | 备注 |
+| --- | --- | --- |
+| `bash experiments/build.sh`（引擎依赖重建） | 14.7s | 仅首次需要；已存在 `libquickjs.a` 时跳过下载与编译 |
+| `bash tools/check.sh`（null） | 11.4s | SKIP=3（⑧⑨/smoke），⑮⑯⑰ 记 N/A |
+| `NEXCORE_JS=quickjs bash tools/check.sh` | 18.2s | 全项真跑；Kotlin compile 仍为 `UNVERIFIED`（本机无 kotlinc） |
+| `bash tools/check-host.sh` | 2.8s | 含 1f 的 1.5s 存活探针与 1g 的 200ms 预算用例 |
+| `tests/interrupt.c`（编译 + 运行） | 0.6s + 0.5s | E1/E2 两条断言各自 `alarm(5)` 兜底未触发 |
+
+**结论**：仓库根补跑结论与 §9 副本实跑**逐条一致**，无回退、无环境缺依赖导致的失败；未改判据、未改 golden、未改版本号、未改 `tools/check.sh`。本次仅新增文档与原始输出，按 6.7 V-4 不 bump 版本。仍不可执行项不变：收口 tag / push 未做（授权外），Kotlin 编译 `UNVERIFIED`（本机无工具链）。

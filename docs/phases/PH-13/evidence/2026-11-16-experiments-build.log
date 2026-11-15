@@ -1,0 +1,87 @@
+
+== fetch + build QuickJS 2025-09-13 ==
+mkdir -p .obj .obj/examples .obj/tests
+clang -g -Wall -MMD -MF .obj/quickjs.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/quickjs.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/quickjs.o quickjs.c
+clang -g -Wall -MMD -MF .obj/dtoa.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/dtoa.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/dtoa.o dtoa.c
+clang -g -Wall -MMD -MF .obj/libregexp.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/libregexp.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/libregexp.o libregexp.c
+clang -g -Wall -MMD -MF .obj/libunicode.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/libunicode.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/libunicode.o libunicode.c
+quickjs.c:11868:32: warning: initializer-string for character array is too long, array size is 36 but initializer has size 37 (including the null terminating character); did you mean to use the 'nonstring' attribute? [-Wunterminated-string-initialization]
+ 11868 | static char const digits[36] = "0123456789abcdefghijklmnopqrstuvwxyz";
+       |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+clang -g -Wall -MMD -MF .obj/cutils.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/cutils.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/cutils.o cutils.c
+clang -g -Wall -MMD -MF .obj/quickjs-libc.o.d -Wextra -Wno-sign-compare -Wno-missing-field-initializers -Wundef -Wuninitialized -Wunused -Wno-unused-parameter -Wwrite-strings -Wchar-subscripts -funsigned-char -MMD -MF .obj/quickjs-libc.o.d -fwrapv  -D_GNU_SOURCE -DCONFIG_VERSION=\"2025-09-13\" -O2 -c -o .obj/quickjs-libc.o quickjs-libc.c
+1 warning generated.
+ar rcs libquickjs.a .obj/quickjs.o .obj/dtoa.o .obj/libregexp.o .obj/libunicode.o .obj/cutils.o .obj/quickjs-libc.o
+
+== 1. bridge.ct: sync + async + errors ==
+[js] sync nativeAdd(2,3)=5
+[js] sync nativeAdd(-4,10)=6
+[js] native error caught: native refused the call
+[c] async scheduled arg=21 slot=0
+[js] script tail reached (async still pending)
+[c] called JS jsMultiply(6) -> 42
+[c] resolved slot=0 arg=21 result=42
+[js] async resolved=42
+[c] async-reject scheduled arg=5 slot=1
+[c] rejected slot=1 arg=5
+[js] async reject caught: worker rejected the job
+[c] pump loop spins=137 jobs=2 microtasks=2 done=1
+[c] JS throw -> JS_IsException=1
+[c] exception from throw: Error: js boom
+[c] clean shutdown
+PASS: sync / async / all three error paths
+
+== 2. abi.h.ct: exported C ABI (C + Swift) ==
+cc -std=c99 -I /Users/samxx/trae-ws/nexcore/experiments/out/abibuild /Users/samxx/trae-ws/nexcore/experiments/out/abibuild/abi.c -o a.out
+host add=42 version=1
+host pair sizeof=24 right_off=8 ctx_off=16
+host make left=7 right=2.5 ctx_ok=1
+host apply=42
+swift add=42 version=1
+swift pair size=24 right_off=8
+swift make left=7 right=2.5 ctx_ok=true
+swift apply=42
+PASS: C ABI exported; C and Swift hosts agree
+
+== 3. layout.ct vs layout_ref.c ==
+sizeof_char=1
+sizeof_int=4
+sizeof_long=8
+sizeof_size_t=8
+sizeof_voidp=8
+sizeof_double=8
+sizeof_longdouble=8
+sizeof_bool=1
+sizeof_enum=4
+align_double=8
+layout_size=40
+layout_off_c=0
+layout_off_i=4
+layout_off_l=8
+layout_off_d=16
+layout_off_p=24
+layout_off_b=32
+layout_off_e=36
+PASS: struct layout identical to C
+
+== 4. cross-unit import (ct build) ==
+cc -std=c99 -I /Users/samxx/trae-ws/nexcore/experiments/out/cross_h /Users/samxx/trae-ws/nexcore/experiments/out/cross_h/crossunit_demo.c /Users/samxx/trae-ws/nexcore/experiments/out/cross_h/abi.c -o a.out
+crossunit add=42 version=1
+cc -std=c99 -I /Users/samxx/trae-ws/nexcore/experiments/out/cross_plain /Users/samxx/trae-ws/nexcore/experiments/out/cross_plain/crossunit_plain.c /Users/samxx/trae-ws/nexcore/experiments/out/cross_plain/abi.c -o a.out
+plain importer add=3
+PASS: import works in ct build (plain .ct importer included)
+
+== 5. known language gaps (expected failures + workarounds) ==
+  import_in_compile_mode   -> /Users/samxx/trae-ws/nexcore/experiments/gaps/import_in_compile_mode.ct:7:1: error: 'import' requires multi-file mode: use 'ct build'
+  errno_probe              -> /Users/samxx/trae-ws/nexcore/experiments/gaps/errno_probe.ct:6:11: error: use of an undeclared variable
+  ifdef_probe              -> /Users/samxx/trae-ws/nexcore/experiments/gaps/ifdef_probe.ct:6:1: error: expected an expression
+  import_after_ns          -> /Users/samxx/trae-ws/nexcore/experiments/gaps/demo/import_after_ns.h.ct:3:1: error: imports must be at the top of the file; move this import above the first declaration
+  import_after_ns          -> import after namespace rejected
+cc -std=c99 -I /Users/samxx/trae-ws/nexcore/experiments/out/gaps/ns_qualified /Users/samxx/trae-ws/nexcore/experiments/out/gaps/ns_qualified/ns_qualified_probe.c -o a.out
+  ns_qualified             -> demo::helper(1) resolved to demo_helper(1)
+cc -std=c99 -I /Users/samxx/trae-ws/nexcore/experiments/out/gaps/ns_cross /Users/samxx/trae-ws/nexcore/experiments/out/gaps/ns_cross/ns_cross_probe.c /Users/samxx/trae-ws/nexcore/experiments/out/gaps/ns_cross/other.c -o a.out
+  ns_cross                 -> other::twice(21) resolved to other_twice(21)
+PASS: gap probes recorded in /Users/samxx/trae-ws/nexcore/experiments/out/gaps
+
+== ALL CHECKS PASSED ==
+bash experiments/build.sh  6.56s user 2.82s system 63% cpu 14.723 total
