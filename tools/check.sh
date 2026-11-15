@@ -675,6 +675,15 @@ for s in create set_sink send drain shutdown free stat; do
     exit 1
   }
 done
+# 归档的 T 必然多于 7（导出白名单只对 dylib 生效）。允许的前缀只有三个内部单元，
+# 出现别的前缀说明有对象被误收（红队 A15）。
+bad=$(nm -g --defined-only "$ARCHIVE" | awk '$2=="T"{print $3}' | sed -E 's/^_//' |
+  grep -vE '^(nexcore_(create|set_sink|send|drain|shutdown|free|stat)|js_backend_[A-Za-z0-9_]+|queue_[A-Za-z0-9_]+|protocol_[A-Za-z0-9_]+)$' || true)
+if [ -n "$bad" ]; then
+  echo "⑰ FAIL: 归档出现预期外的 T 符号：" >&2
+  printf '  %s\n' $bad >&2
+  exit 1
+fi
 "$CC" "${CFLAGS[@]}" \
   -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
   tests/smoke.c "$ARCHIVE" $QJS_LIB -lm -lpthread -o "$BIN/smoke_archive" || {
@@ -688,10 +697,18 @@ if [ -n "$extra" ]; then
 fi
 cp "$ARCHIVE" /tmp/nx_archive_neg.a
 ar d /tmp/nx_archive_neg.a NexCore.o
-if "$CC" "${CFLAGS[@]}" \
+# 负例必须因「缺 _nexcore_create」而失败；若用 -undefined dynamic_lookup 之类选项，
+# 缺成员也能链接成功，判据就空转了（红队 A12）。
+neg_err=$("$CC" "${CFLAGS[@]}" \
   -I "$ABI" -I "$IMPL" -I "$SRC/js_backend" -I "$SRC/queue" -I "$SRC/protocol" $QJS_INC \
-  tests/smoke.c /tmp/nx_archive_neg.a $QJS_LIB -lm -lpthread -o /tmp/nx_archive_neg >/dev/null 2>&1; then
+  tests/smoke.c /tmp/nx_archive_neg.a $QJS_LIB -lm -lpthread -o /tmp/nx_archive_neg 2>&1) && neg_rc=0 || neg_rc=1
+if [ "$neg_rc" -eq 0 ]; then
   echo "⑰ FAIL: 去掉 NexCore.o 后仍能链接，判据空转" >&2
+  exit 1
+fi
+if ! printf '%s' "$neg_err" | grep -q "_nexcore_create"; then
+  echo "⑰ FAIL: 负例失败原因不是缺 _nexcore_create：" >&2
+  printf '%s\n' "$neg_err" | head -5 >&2
   exit 1
 fi
 if [ "$JS_BACKEND" = "quickjs" ]; then

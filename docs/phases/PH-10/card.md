@@ -256,3 +256,4 @@ ar rcs "$BIN/libnexcore.a" "$IMPL"/obj/*.o
 | PH10-T1r | `4dc4c84` | 把泵改回无界（`limit = 0x7fffffff`）、去掉 shutdown 收尾泵后跑 `tests/pump_microtask.c` | `C: bounded...` 不出现即挂死；`rc=142`（SIGALRM，alarm(5) 兜底） | 142 | 2026-11-15 |
 | PH10-T1s | `4dc4c84` | 同上环境跑 `tests/pump_bounds.c`（白盒） | `B: after shutdown bumps=1` / `FAIL: shutdown 未补齐剩余 job（期望 bumps=3）` | 4 | 2026-11-15 |
 | PH10-T6r | `3084fc3` | `bash tests/hosts_boundary_scan.sh`（新增 `.c` 越界 include 探针） | `FAIL: C 宿主越界 include 未被拦下（rc=0）` / `boundaries: PASS（19 个文件…）` | 1 | 2026-11-15 |
+| PH10-T5r | — | 无独立红证：本轮是加强项（T 前缀约束、负例失败原因断言），不改变既有状态 | 归档 T 集合与负例 stderr 由 ⑰ 静态断言；原 ⑰ 缺档红证见 PH10-T5 | — | 2026-11-15 |
