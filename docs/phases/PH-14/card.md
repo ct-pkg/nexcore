@@ -191,14 +191,26 @@ T1 → T2 串行；T2 的验收不依赖 T1 的实现细节（只核对文档与
 
 ### 11.3 收口 tag 与推送
 
-执行时机在收口提交之后（tag 需指向该提交，message 需含其 sha 前 7 位，故本节实跑输出无法写进同一个提交）。四项校验与 `ls-remote` 原始输出回填于后续纯文档提交（按 6.7 V-4，纯文档不动版本号）。
+执行时机在收口提交之后（tag 需指向该提交，message 需含其 sha 前 7 位，故本节实跑输出无法写进同一个提交）。本节为回填记录，按 6.7 V-4 纯文档改动不动版本号。
 
-| 校验（6.7 V-7） | 命令 | 期望 |
-| --- | --- | --- |
-| ① 名称格式 | `echo v0.14.0 \| grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'` | rc=0 |
-| ② annotated | `git cat-file -t v0.14.0` | `tag` |
-| ③ 指向收口提交 | `git rev-parse v0.14.0^{commit}` | 等于收口提交 sha |
-| ④ 远端可追溯 | `git branch -r --contains <sha>` | 非空 |
+| 校验（6.7 V-7） | 命令 | 原始输出 | 结论 |
+| --- | --- | --- | --- |
+| ① 名称格式 | `echo v0.14.0 \| grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'` | （无输出）`①name_rc=0` | 通过 |
+| ② annotated | `git cat-file -t v0.14.0` | `tag` | 通过 |
+| ③ 指向收口提交 | `git rev-parse v0.14.0^{commit}` / `git rev-parse 15599da` | `15599da3b87e4d45c2442a8d2ed85ba3e2ce8d70` / `15599da3b87e4d45c2442a8d2ed85ba3e2ce8d70` | 通过（相等） |
+| ④ 远端可追溯 | `git branch -r --contains 15599da` | `origin/HEAD -> origin/main` / `origin/main` | 通过（非空） |
+
+**tag 对象**（`git cat-file -p v0.14.0`）：`object 15599da3b87e4d45c2442a8d2ed85ba3e2ce8d70` / `type commit` / `tag v0.14.0` / message `PH-14 15599da`。
+
+**推送与远端核对**
+
+| 命令 | 原始输出 |
+| --- | --- |
+| `git push origin main` | `e9af85f..15599da  main -> main`，rc=0 |
+| `git push origin v0.14.0` | `* [new tag]         v0.14.0 -> v0.14.0`，rc=0 |
+| `git ls-remote origin refs/heads/main refs/tags/v0.14.0` | `15599da3b87e4d45c2442a8d2ed85ba3e2ce8d70	refs/heads/main` / `f498168efc08550a2e68f17d57d41cf15b6875c8	refs/tags/v0.14.0` |
+
+`refs/tags/v0.14.0` 的 sha（`f498168`）是 annotated tag 对象本身，与 `object` 行指向的提交 `15599da` 不同，属预期。
 
 ---
 
