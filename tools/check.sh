@@ -554,6 +554,39 @@ python3 tools/nexcore_schema_gen.py --negatives tests/gen_negatives \
   --expect tests/gen_negatives/expected.tsv
 "$CC" "${CFLAGS[@]}" -I "$ABI" -I schema/generated/c \
   -fsyntax-only schema/generated/c/nexcore_registry.c
+
+# 行为断言（GEN-05/12）：生成物不是文本摆件 —— 编译成可执行，让 dispatch 真走到 provider。
+"$CC" "${CFLAGS[@]}" -I "$ABI" -I schema/generated/c \
+  schema/generated/c/nexcore_registry.c tests/gen_registry_behavior.c \
+  -o "$BIN/gen_registry_behavior"
+"$BIN/gen_registry_behavior"
+echo "⑭ registry 行为: PASS（wrapper/adaptor/dispatch 三层都真调 provider，单次派发）"
+
+# GEN-16 机制：跨单元取址必须由编译期拒绝，不靠 grep。
+mkdir -p "$IMPL/gen_neg"
+python3 - "$IMPL/gen_neg/nexcore_registry_bad.c" <<'PY'
+import pathlib
+import sys
+
+src = pathlib.Path("schema/generated/c/nexcore_registry.c").read_text(encoding="utf-8")
+pathlib.Path(sys.argv[1]).write_text(
+    src + "\nvoid *nx_gen_bad_addr(void) { return (void *)&queue_push; }\n",
+    encoding="utf-8",
+)
+PY
+rc=0
+"$CC" "${CFLAGS[@]}" -I "$ABI" -I schema/generated/c -fsyntax-only \
+  "$IMPL/gen_neg/nexcore_registry_bad.c" 2>"$IMPL/gen_neg/bad.err" || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "⑭ FAIL: 跨单元取址 &queue_push 本应编译失败（GEN-16）" >&2
+  exit 1
+fi
+if ! grep -q 'queue_push' "$IMPL/gen_neg/bad.err"; then
+  echo "⑭ FAIL: 负例失败原因不是 queue_push 未声明（GEN-16 判据不成立）" >&2
+  cat "$IMPL/gen_neg/bad.err" >&2
+  exit 1
+fi
+echo "⑭ GEN-16 跨单元取址: PASS（编译期拒绝，错误信息指向 queue_push）"
 if grep -nE '#define[[:space:]]+[A-Za-z_]+\(' schema/generated/c/*; then
   echo "⑭ FAIL: 生成 C 出现函数式宏（GEN-03）" >&2
   exit 1
@@ -610,5 +643,6 @@ echo "ALL CHECKS PASSED (NEXCORE_JS=$JS_BACKEND)"
 #   ⑬  Schema hash：tests/fixture.schema.yaml 字节 == abi/schema-hash.txt ==
 #       src/NexCore.ct 的 NEXCORE_SCHEMA_HASH；错 hash 拒绝且同进程重试成功
 #   ⑭  P3 生成器：Schema -> 5 个产物无漂移、20 条负例全部真红（规则+行号）、
-#       生成 C 过 -Werror；Swift 用 swiftc 判，Kotlin/无引擎时的 JS 标 UNVERIFIED
+#       生成 C 过 -Werror；registry 行为测试（dispatch -> provider，GEN-05/12）；
+#       GEN-16 跨单元取址编译期负例；Swift 用 swiftc 判，Kotlin/无引擎时的 JS 标 UNVERIFIED
 # ---------------------------------------------------------------------------

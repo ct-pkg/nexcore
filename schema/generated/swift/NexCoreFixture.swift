@@ -14,3 +14,15 @@ public protocol NexCoreFixtureHandler {
     // direction: js2ui
     func ping() throws -> String
 }
+
+// 调用点：fixture::echo
+@MainActor
+public func callEcho(_ handler: NexCoreFixtureHandler, text: String) throws -> String {
+    return try handler.echo(text: text)
+}
+
+// 调用点：fixture::ping
+@MainActor
+public func callPing(_ handler: NexCoreFixtureHandler) throws -> String {
+    return try handler.ping()
+}

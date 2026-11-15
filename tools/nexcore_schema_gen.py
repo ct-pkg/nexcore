@@ -8,7 +8,9 @@
   * 先建模型再发射：所有标识符都要过命名与冲突检查，不允许“原样输出”；
   * 报错必须带 `文件:行号` 与规则号（GEN-xx），负例靠它做二值判定；
   * 生成物不含时间戳/绝对路径/随机顺序（GEN-09），同输入两次字节一致；
-  * `--check` 只比对不写盘，漂移 rc=2（不许“重新生成一遍就绿”）。
+  * `--check` 只比对不写盘，漂移 rc=2（不许“重新生成一遍就绿”）；
+  * 生成 C 不是空壳：typed wrapper -> provider，adaptor 校验 argc 并转类型，
+    `nx_gen_dispatch` 是真正的运行时调用点（行为由 tests/gen_registry_behavior.c 判定）。
 
 规则子集（骨架阶段）：
   GEN-01 文件头带 schema_hash 与 DO NOT EDIT
@@ -452,11 +454,37 @@ def c_wrapper_name(schema: Schema, method: Method) -> str:
     return f"nx_gen_{schema.namespace}_{method.name}"
 
 
+def c_invoke_name(schema: Schema, method: Method) -> str:
+    return f"nx_gen_{schema.namespace}_{method.name}_invoke"
+
+
 def c_params(method: Method) -> str:
-    parts = [f"{PRIMITIVES[p.type]['c']}{p.name}" for p in method.params]
+    parts = [f"{PRIMITIVES[p.type]['c']} {p.name}" for p in method.params]
     parts.append("char **out")
     parts.append("size_t *out_len")
     return ", ".join(parts)
+
+
+def c_arg_decl(param: Param) -> str:
+    if param.type == "bytes":
+        return f"const void *{param.name};"
+    return f"{PRIMITIVES[param.type]['c']} {param.name};"
+
+
+def c_arg_parse(index: int, param: Param) -> str:
+    slot = f"argv[{index}]"
+    if param.type == "int":
+        return f"    {param.name} = (int32_t)strtol({slot}, 0, 10);"
+    if param.type == "bool":
+        return (
+            f'    {param.name} = (strcmp({slot}, "true") == 0 || '
+            f'strcmp({slot}, "1") == 0) ? 1 : 0;'
+        )
+    if param.type == "double":
+        return f"    {param.name} = strtod({slot}, 0);"
+    if param.type == "bytes":
+        return f"    {param.name} = (const void *){slot};"
+    return f"    {param.name} = {slot};"
 
 
 def render_c_header(schema: Schema, source: Path) -> str:
@@ -475,17 +503,36 @@ def render_c_header(schema: Schema, source: Path) -> str:
         "    NX_GEN_DIR_JS2UI = 1",
         "} nx_gen_dir;",
         "",
+        "/* 业务侧实现的 provider：每个方法一个槽，由宿主注入。 */",
+        "struct nx_gen_provider {",
+    ]
+    for method in schema.methods:
+        lines.append(f"    int32_t (*{method.name})({c_params(method)});")
+    lines += [
+        "};",
+        "",
+        "/* registry 只认字符串参数；adaptor 负责 argc 校验与类型转换。 */",
+        "typedef int32_t (*nx_gen_invoke_fn)(const char *const *argv, size_t argc,",
+        "                                   char **out, size_t *out_len);",
+        "",
         "struct nx_gen_method {",
         "    const char *name;",
         "    nx_gen_dir direction;",
         "    const char *result_type;",
         "    size_t param_count;",
+        "    nx_gen_invoke_fn invoke;",
         "};",
+        "",
+        "int32_t nx_gen_register_provider(const struct nx_gen_provider *provider);",
         "",
     ]
     for method in schema.methods:
         lines.append(f"int32_t {c_wrapper_name(schema, method)}({c_params(method)});")
     lines += [
+        "",
+        "/* 运行时调用点：按名字查表 -> adaptor -> typed wrapper -> provider。 */",
+        "int32_t nx_gen_dispatch(const char *name, const char *const *argv, size_t argc,",
+        "                        char **out, size_t *out_len);",
         "",
         "extern const struct nx_gen_method *const nx_gen_methods;",
         "extern const size_t nx_gen_method_count;",
@@ -501,13 +548,69 @@ def render_c_source(schema: Schema, source: Path) -> str:
         "",
         '#include "nexcore_registry.h"',
         "",
-        "static const struct nx_gen_method nx_gen_method_table[] = {",
+        "#include <stdlib.h>",
+        "#include <string.h>",
+        "",
+        "static const struct nx_gen_provider *nx_gen_active_provider;",
+        "",
+        "int32_t nx_gen_register_provider(const struct nx_gen_provider *provider)",
+        "{",
+        "    nx_gen_active_provider = provider;",
+        "    return NX_OK;",
+        "}",
+        "",
     ]
+
+    # 调用点 1：typed wrapper。只做一次 provider 派发（GEN-05）。
+    for method in schema.methods:
+        call_args = [p.name for p in method.params] + ["out", "out_len"]
+        lines += [
+            f"/* 调用点 1：{schema.namespace}::{method.name} —— typed wrapper 直接派发到 provider。 */",
+            f"int32_t {c_wrapper_name(schema, method)}({c_params(method)})",
+            "{",
+            "    if (nx_gen_active_provider == 0 || "
+            f"nx_gen_active_provider->{method.name} == 0) {{",
+            "        return NX_E_INTERNAL;",
+            "    }",
+            f"    return nx_gen_active_provider->{method.name}({', '.join(call_args)});",
+            "}",
+            "",
+        ]
+
+    # 调用点 2：registry adaptor（字符串 -> typed 参数），由 nx_gen_dispatch 调用。
+    for method in schema.methods:
+        lines += [
+            f"/* 调用点 2：{schema.namespace}::{method.name} —— registry adaptor（argc + 类型转换）。 */",
+            f"static int32_t {c_invoke_name(schema, method)}("
+            "const char *const *argv, size_t argc,",
+            "                                          char **out, size_t *out_len)",
+            "{",
+        ]
+        if method.params:
+            for param in method.params:
+                lines.append(f"    {c_arg_decl(param)}")
+            lines.append("")
+            lines.append(f"    if (argc != {len(method.params)}) return NX_E_INVALID_ARGUMENT;")
+            lines.append("    if (argv == 0) return NX_E_INVALID_ARGUMENT;")
+            for index, param in enumerate(method.params):
+                lines.append(c_arg_parse(index, param))
+        else:
+            lines.append("    (void)argv;")
+            lines.append("    if (argc != 0) return NX_E_INVALID_ARGUMENT;")
+        args = [p.name for p in method.params] + ["out", "out_len"]
+        lines += [
+            f"    return {c_wrapper_name(schema, method)}({', '.join(args)});",
+            "}",
+            "",
+        ]
+
+    lines += ["static const struct nx_gen_method nx_gen_method_table[] = {"]
     rows = []
     for method in schema.methods:
         rows.append(
             f'    {{"{method.name}", NX_GEN_DIR_{method.direction.upper()}, '
-            f'"{method.result}", {len(method.params)}}}'
+            f'"{method.result}", {len(method.params)}, '
+            f"{c_invoke_name(schema, method)}}}"
         )
     lines.append(",\n".join(rows))
     lines += [
@@ -517,23 +620,23 @@ def render_c_source(schema: Schema, source: Path) -> str:
         "const size_t nx_gen_method_count =",
         "    sizeof(nx_gen_method_table) / sizeof(nx_gen_method_table[0]);",
         "",
+        "int32_t nx_gen_dispatch(const char *name, const char *const *argv, size_t argc,",
+        "                        char **out, size_t *out_len)",
+        "{",
+        "    size_t i;",
+        "",
+        "    if (out != 0) *out = 0;",
+        "    if (out_len != 0) *out_len = 0;",
+        "    if (name == 0) return NX_E_INVALID_ARGUMENT;",
+        "    for (i = 0; i < nx_gen_method_count; i = i + 1) {",
+        "        if (strcmp(nx_gen_method_table[i].name, name) == 0) {",
+        "            return nx_gen_method_table[i].invoke(argv, argc, out, out_len);",
+        "        }",
+        "    }",
+        "    return NX_E_INVALID_ARGUMENT;",
+        "}",
+        "",
     ]
-    for method in schema.methods:
-        lines += [
-            f"/* {schema.namespace}::{method.name} —— 骨架阶段的 wrapper：业务 handler 未接，"
-            f"统一返回 NX_E_INTERNAL。 */",
-            f"int32_t {c_wrapper_name(schema, method)}({c_params(method)})",
-            "{",
-        ]
-        for param in method.params:
-            lines.append(f"    (void){param.name};")
-        lines += [
-            "    (void)out;",
-            "    (void)out_len;",
-            "    return NX_E_INTERNAL;",
-            "}",
-            "",
-        ]
     return "\n".join(lines)
 
 
@@ -552,6 +655,21 @@ def render_swift(schema: Schema, source: Path) -> str:
         lines.append(f"    // direction: {method.direction}")
         lines.append(f"    func {method.name}({params}) throws -> {PRIMITIVES[method.result]['swift']}")
     lines += ["}", ""]
+
+    # 调用点：不是声明，而是真正把 handler 调起来的函数。
+    for method in schema.methods:
+        labels = ", ".join(f"{p.name}: {PRIMITIVES[p.type]['swift']}" for p in method.params)
+        args = ", ".join(f"{p.name}: {p.name}" for p in method.params)
+        lines += [
+            f"// 调用点：{schema.namespace}::{method.name}",
+            "@MainActor",
+            f"public func call{pascal(method.name)}(_ handler: {type_name}Handler"
+            + (f", {labels}" if labels else "")
+            + f") throws -> {PRIMITIVES[method.result]['swift']} {{",
+            f"    return try handler.{method.name}({args})",
+            "}",
+            "",
+        ]
     return "\n".join(lines)
 
 
@@ -570,6 +688,18 @@ def render_kotlin(schema: Schema, source: Path) -> str:
         lines.append(f"    // direction: {method.direction}")
         lines.append(f"    fun {method.name}({params}): {PRIMITIVES[method.result]['kotlin']}")
     lines += ["}", ""]
+
+    # 调用点：生成真正调用 handler 的顶层函数（GEN-12 的“至少一个调用点”）。
+    for method in schema.methods:
+        params = ", ".join(f"{p.name}: {PRIMITIVES[p.type]['kotlin']}" for p in method.params)
+        args = ", ".join(p.name for p in method.params)
+        signature = f"handler: {type_name}Handler" + (f", {params}" if params else "")
+        lines += [
+            f"// 调用点：{schema.namespace}::{method.name}",
+            f"fun call{pascal(method.name)}({signature}): "
+            f"{PRIMITIVES[method.result]['kotlin']} = handler.{method.name}({args})",
+            "",
+        ]
     return "\n".join(lines)
 
 
@@ -596,6 +726,91 @@ def render_js(schema: Schema, source: Path) -> str:
     lines.append(",\n".join(rows))
     lines += ["  });", "}", ""]
     return "\n".join(lines)
+
+
+def c_functions(text: str) -> dict:
+    """抽出生成的 C 里每个 `int32_t f(...)` 的函数体（用于 GEN-05 机械断言）。"""
+    lines = text.splitlines()
+    found: dict = {}
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^(?:static\s+)?int32_t\s+([A-Za-z_]\w*)\s*\(", lines[index])
+        if not match:
+            index += 1
+            continue
+        name = match.group(1)
+        cursor = index
+        while cursor < len(lines) and lines[cursor].strip() != "{":
+            cursor += 1
+        if cursor >= len(lines):
+            raise SystemExit(f"nexcore-gen-schema: 生成 C 缺函数体: {name}")
+        cursor += 1
+        body = []
+        depth = 1
+        while cursor < len(lines) and depth > 0:
+            line = lines[cursor]
+            depth += line.count("{") - line.count("}")
+            body.append(line)
+            cursor += 1
+        found[name] = body
+        index = cursor
+    return found
+
+
+def verify_artifacts(schema: Schema, files: dict) -> None:
+    """GEN-05 / GEN-12 的机械断言：生成物必须四端一致，wrapper 只派发一次。"""
+    problems: list = []
+    header = files["c/nexcore_registry.h"]
+    source = files["c/nexcore_registry.c"]
+    swift = files[f"swift/NexCore{pascal(schema.namespace)}.swift"]
+    kotlin = files[f"kotlin/NexCore{pascal(schema.namespace)}.kt"]
+    js = files[f"js/nexcore_{schema.namespace}.js"]
+    funcs = c_functions(source)
+
+    if "int32_t nx_gen_dispatch(" not in header or "int32_t nx_gen_dispatch(" not in source:
+        problems.append("GEN-12 C 缺少运行时调用点 nx_gen_dispatch")
+
+    for method in schema.methods:
+        wrapper = c_wrapper_name(schema, method)
+        invoke = c_invoke_name(schema, method)
+        called = pascal(method.name)
+
+        if header.count(f"int32_t {wrapper}(") != 1:
+            problems.append(f"GEN-12 C 头里 {method.name} 的 wrapper 声明应恰好 1 次")
+        if header.count(f"int32_t (*{method.name})(") != 1:
+            problems.append(f"GEN-12 C 头里 {method.name} 的 provider 槽应恰好 1 个")
+        if wrapper not in funcs or invoke not in funcs:
+            problems.append(f"GEN-12 C 源里 {method.name} 的 wrapper/adaptor 缺失")
+            continue
+        if len(funcs[wrapper]) > 40:
+            problems.append(f"GEN-05 {wrapper} 函数体超过 40 行")
+        dispatches = sum(
+            line.count(f"nx_gen_active_provider->{method.name}(") for line in funcs[wrapper]
+        )
+        if dispatches != 1:
+            problems.append(f"GEN-05 {wrapper} 必须恰好派发 provider 一次（实际 {dispatches}）")
+        if source.count(invoke) < 2:
+            problems.append(f"GEN-12 {invoke} 必须既定义又被 registry 表引用")
+        if source.count(f'"{method.name}", NX_GEN_DIR_') != 1:
+            problems.append(f"GEN-12 registry 表里 {method.name} 应恰好 1 行")
+
+        if swift.count(f"func {method.name}(") != 1:
+            problems.append(f"GEN-12 Swift 里 {method.name} 的声明应恰好 1 次")
+        if swift.count(f"func call{called}(") != 1:
+            problems.append(f"GEN-12 Swift 缺 {method.name} 的调用点")
+        if kotlin.count(f"fun {method.name}(") != 1:
+            problems.append(f"GEN-12 Kotlin 里 {method.name} 的声明应恰好 1 次")
+        if kotlin.count(f"fun call{called}(") != 1:
+            problems.append(f"GEN-12 Kotlin 缺 {method.name} 的调用点")
+        if js.count(f"  {method.name}: Object.freeze(") != 1:
+            problems.append(f"GEN-12 JS 注册表里 {method.name} 应恰好 1 条")
+        if js.count(f"    {method.name}(") != 1:
+            problems.append(f"GEN-12 JS 缺 {method.name} 的调用点")
+
+    if problems:
+        for item in problems:
+            print(f"nexcore-gen-schema: FAIL {item}", file=sys.stderr)
+        raise SystemExit(f"nexcore-gen-schema: 生成物自检失败（{len(problems)} 处）")
 
 
 def artifacts(schema: Schema, source: Path) -> dict:
@@ -693,6 +908,7 @@ def main() -> int:
         return 1
 
     files = artifacts(schema, source)
+    verify_artifacts(schema, files)
     out_root = Path(args.out)
 
     if args.write:

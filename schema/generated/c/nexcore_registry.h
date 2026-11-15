@@ -13,15 +13,32 @@ typedef enum {
     NX_GEN_DIR_JS2UI = 1
 } nx_gen_dir;
 
+/* 业务侧实现的 provider：每个方法一个槽，由宿主注入。 */
+struct nx_gen_provider {
+    int32_t (*echo)(const char * text, char **out, size_t *out_len);
+    int32_t (*ping)(char **out, size_t *out_len);
+};
+
+/* registry 只认字符串参数；adaptor 负责 argc 校验与类型转换。 */
+typedef int32_t (*nx_gen_invoke_fn)(const char *const *argv, size_t argc,
+                                   char **out, size_t *out_len);
+
 struct nx_gen_method {
     const char *name;
     nx_gen_dir direction;
     const char *result_type;
     size_t param_count;
+    nx_gen_invoke_fn invoke;
 };
 
-int32_t nx_gen_fixture_echo(const char *text, char **out, size_t *out_len);
+int32_t nx_gen_register_provider(const struct nx_gen_provider *provider);
+
+int32_t nx_gen_fixture_echo(const char * text, char **out, size_t *out_len);
 int32_t nx_gen_fixture_ping(char **out, size_t *out_len);
+
+/* 运行时调用点：按名字查表 -> adaptor -> typed wrapper -> provider。 */
+int32_t nx_gen_dispatch(const char *name, const char *const *argv, size_t argc,
+                        char **out, size_t *out_len);
 
 extern const struct nx_gen_method *const nx_gen_methods;
 extern const size_t nx_gen_method_count;

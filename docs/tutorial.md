@@ -368,7 +368,8 @@ struct NexCoreConfig {
     uint32_t reserved;             /* 必须为 0 */
     int64_t (*now_ms)(void *user); /* 骨架未使用 */
     void *clock_user;
-    const char *schema_hash;       /* 骨架未校验 */
+    const char *schema_hash;       /* 已校验：与编译进库的 NEXCORE_SCHEMA_HASH 比较，
+                                      不匹配返回 NX_E_SCHEMA_MISMATCH；NULL 视为 debug 跳过 */
     const char *bootstrap_js;      /* 骨架不读取内容，只取长度 */
     size_t bootstrap_len;
     NexCoreLog log;                /* 可选尾字段，骨架未调用 */
@@ -381,6 +382,8 @@ struct NexCoreConfig {
 - **不要** `typedef struct NexCoreConfig NexCoreConfig;` —— CT 侧没有别名，C 侧一律写 `struct NexCoreConfig`。
 - **不要**给它加 `use Trait` —— 会追加隐藏 vptr，Swift/Kotlin 已编译布局静默错位。
 - `struct_size` 是**最小长度**：`>= NEXCORE_CONFIG_MIN_SIZE`(72) 即可；库忽略尾部未知字段。旧调用方传 72 也能用。
+- `NEXCORE_CONFIG_CURRENT_SIZE` 实测为 **88**（`V1_SIZE`/`MIN` 仍是 72，差值是尾部 `log`/`log_user`）；三个数都由 `abi/abi-layout.txt` 锁定，改字段必须升 `abi_version`。
+- **32 位布局未验证**：本机 clang 没有 32 位 slice，`-m32` 链接失败，`design.md` 要求的 32/64 双向 `offsetof` 断言目前只有 64 位实测；Android armeabi-v7a 等目标需在对应工具链上补测，在此之前不得当作通过。
 - 常量都是 `pub enum`，不是 `#define`（`#define` 不进导出头）。
 
 ### 8.2 七个函数与当前真实行为

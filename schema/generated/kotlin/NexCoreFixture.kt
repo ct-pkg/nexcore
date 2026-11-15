@@ -13,3 +13,9 @@ interface NexCoreFixtureHandler {
     // direction: js2ui
     fun ping(): String
 }
+
+// 调用点：fixture::echo
+fun callEcho(handler: NexCoreFixtureHandler, text: String): String = handler.echo(text)
+
+// 调用点：fixture::ping
+fun callPing(handler: NexCoreFixtureHandler): String = handler.ping()
