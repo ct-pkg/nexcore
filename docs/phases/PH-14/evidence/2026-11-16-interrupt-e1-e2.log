@@ -1,0 +1,25 @@
+# PH-14 E1/E2 收口复跑（2026-11-16，仓库根 /Users/samxx/trae-ws/nexcore）
+
+## 编译（卡 §5 E1 命令 + §9 裁定 9 的引擎头路径）
+
+$ cc -std=c99 -Wall -Wextra -Werror -Werror=implicit-function-declaration \
+    -I build/abi -isystem experiments/third_party/quickjs \
+    tests/interrupt.c build/impl/*.c experiments/third_party/quickjs/libquickjs.a \
+    -lm -lpthread -o build/bin/interrupt
+(无输出)
+build_rc=0
+
+## 运行
+
+$ ./build/bin/interrupt
+drain rc=0 delivered=1 last_error=9 payload={"code":"E_TIMEOUT","message":"timeout: evaluation exceeded budget"}
+drain rc=0 delivered=1 last_error=9 payload={"code":"E_INTERRUPTED","message":"InternalError: interrupted"}
+polls=5
+INTERRUPT OK
+run_rc=0
+
+## 墙钟
+
+./build/bin/interrupt  0.20s user 0.01s system 44% cpu 0.473 total
+
+alarm(5) 未触发（进程 0.47s 退出，rc=0，非 142）。

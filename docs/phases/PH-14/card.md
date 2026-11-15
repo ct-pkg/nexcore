@@ -1,6 +1,6 @@
 # PH-14 卡：K-7 中断错误面分流（协议码）
 
-> 状态：**已冻结（2026-11-16）**，待开工。`version-minor`：**14**。
+> 状态：**已收口（2026-11-16）**，`v0.14.0`。`version-minor`：**14**。
 > 上游：[PH-13 遗留 ABI 面评审](../../reviews/nexcore-ph13-k6-k7-abi-surface-review.md) §0/§3/§5.2、[PH-13 卡](../PH-13/card.md) §6/§10 K-7、[protocol.md](../../protocol.md) §4、[acceptance.md](../../acceptance.md) ACC-B-02。
 > 禁止改动：`docs/roadmap.md`、`abi/*`、`src/NexCore.h.ct`、`.ai-engineering`、7 个导出符号、`NEXCORE_CONFIG_CURRENT_SIZE`。
 
@@ -120,9 +120,9 @@ T1 → T2 串行；T2 的验收不依赖 T1 的实现细节（只核对文档与
 
 | 项 | 动作 | 判据 |
 | --- | --- | --- |
-| 版本 | `docs/README.md` 状态行 `v0.13.0` → `v0.14.0`（6.7 V-1，`MINOR=14`、PATCH 归零） | 与收口提交同提交；`g4-version` 四项核对通过 |
-| 收口 tag / push | 按当前项目授权**不执行**（与 PH-13 同口径） | 补跑命令：`git tag -a v0.14.0 -m "PH-14 <sha>" <sha> && git push origin v0.14.0` |
-| 证据 | 收口时在卡内补 E1–E6 原始输出与红证表 | 每条带命令、rc、原文摘要 |
+| 版本 | `docs/README.md` 状态行 `v0.13.0` → `v0.14.0`（6.7 V-1，`MINOR=14`、PATCH 归零） | **已执行**：与收口提交同提交；核对记录见 §11 |
+| 收口 tag / push | 本轮用户显式授权按 6.7 V-7 执行（与 PH-13「不执行」口径不同，授权来自本轮指令） | **已执行**：`v0.14.0` annotated tag 指向收口提交，四项校验通过后推送；记录见 §11.3 |
+| 证据 | 收口时在卡内补 E1–E6 原始输出与红证表 | **已执行**：§10；原始输出归档于本卡同目录 `evidence/2026-11-16-*` |
 
 ---
 
@@ -139,3 +139,76 @@ T1 → T2 串行；T2 的验收不依赖 T1 的实现细节（只核对文档与
 | 7 | PH-14 与 PH-15 的启动顺序 | **PH-14 先开工** | 零 ABI、改动面最小、可在单测内闭环；PH-15 的前置是线程/队列缺口，与本卡无依赖 |
 | 8 | T1 交付面是否包含宿主消费端（执行中发现） | **追加 `hosts/shell/main.c` 一处前缀识别**（`e952c02`） | 既有宿主把错误前缀硬编码为 `E_JS_EXCEPTION`，新码会被当普通输出，E5 的 `HOST OK` 在 1g 直接失败；`$error` 信封形状未改，只把识别放宽到 `{"code":"E_`，具体码仍由调用方按 §4 分支 |
 | 9 | E1 编译命令缺少 quickjs 头路径（执行中发现） | **按实测补 `-isystem experiments/third_party/quickjs`** | 卡面命令未带引擎头路径，`cc` 找不到 `quickjs.h` 即失败；该开关与 `check.sh` 编译同一实现时一致，E1/E2 判据本身未改 |
+
+---
+
+## 10. 收口证据表（2026-11-16，仓库根实跑）
+
+**环境**：仓库根 `/Users/samxx/trae-ws/nexcore`；`experiments/third_party/quickjs/libquickjs.a` 已存在（`ls -la` 3912248 字节，11月16 04:12），无需 `experiments/build.sh`。`check.sh` 自带 `rm -rf build/{abi,impl,bin}` 后重建。原始输出归档于 `evidence/2026-11-16-*`。
+
+| # | 判据 | 命令 | rc | 关键原始输出（节选） | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 预算超时产出 `E_TIMEOUT` | `cc … -I build/abi -isystem experiments/third_party/quickjs tests/interrupt.c build/impl/*.c …/libquickjs.a -lm -lpthread -o build/bin/interrupt && ./build/bin/interrupt` | 0（编译）/ 0（运行） | `drain rc=0 delivered=1 last_error=9 payload={"code":"E_TIMEOUT","message":"timeout: evaluation exceeded budget"}` | PASS |
+| E2 | 宿主中断产出 `E_INTERRUPTED` | 同夹具 B 段（回调第 5 次返回 1） | 0 | `payload={"code":"E_INTERRUPTED","message":"InternalError: interrupted"}` / `polls=5` / `INTERRUPT OK` | PASS |
+| E3 | ABI 错误面未被拉动 | `grep -c 'NX_E_' abi/abi-layout.txt`；`grep -c 'NX_E_INTERRUPTED' abi/abi-layout.txt` | 0 / 1（grep 无命中） | `11` / `0`；E1/E2 两段 `last_error=9` | PASS |
+| E4 | 文档契约一致 | `grep -n 'E_INTERRUPTED' docs/protocol.md`；`grep -n 'protocol.md §4 的 20 个错误码' docs/acceptance.md`；`git show --name-only 85d8b07` | 0 | `docs/protocol.md:117:| \`E_INTERRUPTED\` | -32015 | 否 | 宿主主动中断当前求值 |`；`docs/acceptance.md:81: … protocol.md §4 的 20 个错误码全部命中 …`；T2 提交路径仅 `docs/acceptance.md`、`docs/protocol.md` | PASS |
+| E5 | 全量门禁 | `bash tools/check.sh`；`NEXCORE_JS=quickjs bash tools/check.sh`；`bash tools/check-host.sh` | 0 / 0 / 0 | `ALL CHECKS PASSED (NEXCORE_JS=null)`（null 档 SKIP=3：⑧⑨/smoke）；`ALL CHECKS PASSED (NEXCORE_JS=quickjs)`；`HOST OK` | PASS |
+| E6 | ABI 面未破 | 两档 `check.sh` 的 ⑩/⑪/⑫ 与 `grep -n CURRENT_SIZE abi/abi-layout.txt` | 0 | `⑩ libnexcore: PASS（仅 libc/pthread，7 个 nexcore_* 导出）`；`⑪ ABI layout golden: PASS（build/abi/abi-layout.txt == abi/abi-layout.txt）`；`⑫ layout drift negatives: PASS（插入 / 同宽度重排都必须 diff）`；`abi/abi-layout.txt:45: NEXCORE_CONFIG_CURRENT_SIZE = 144` | PASS |
+
+**墙钟**：`./build/bin/interrupt` 0.473s 总计（`alarm(5)` 未触发，rc=0 而非 142）。
+
+**红证记录（PH14-T1，转录自 `351538b` 提交正文，非当前代码复跑）**
+
+| task | baseline | 命令 | 原始输出（节选） | rc |
+| --- | --- | --- | --- | --- |
+| PH14-T1 | `36e6423`（`351538b` 的父提交，`git merge-base --is-ancestor 36e6423 HEAD` = 真） | 同上 E1 编译命令（`tests/interrupt.c` 已带新断言） | `drain rc=0 delivered=1 last_error=9 payload={"code":"E_JS_EXCEPTION","message":"timeout: evaluation exceeded budget"}` / `FAIL: budget payload code is not E_TIMEOUT` | 11 |
+
+---
+
+## 11. 收口动作（2026-11-16 执行）
+
+### 11.1 版本与核对
+
+| 项 | 值 | 出处 |
+| --- | --- | --- |
+| 版本 | `v0.13.0` → `v0.14.0`（`MINOR=14`、PATCH 归零） | `docs/README.md` 状态行（唯一版本落点，见 `AGENTS.md` 实例化节） |
+| 与 phase 对应 | `PH-14` → `MINOR=14` | 6.7 V-1；无版本偏离登记，不做偏移换算 |
+| PATCH = 0 | 本 phase 窗口内无 fix 条目 | 6.7 V-3 |
+| CHANGELOG | 本仓无 `CHANGELOG*`（`ls docs/CHANGELOG* CHANGELOG*` 无匹配） | `g4-version` 第④项不适用，非「不一致」 |
+| 收口提交 | `git log --grep 'PH-14 收口' -1 --format=%H`（sha 不能自指，故不写死在卡内） | — |
+
+### 11.2 REVIEW 对 PH14-T2 `no-test: 纯文档` 的签字
+
+| 项 | 记录 |
+| --- | --- |
+| 角色 / 日期 | REVIEW / 2026-11-16（PH-14 收口复核） |
+| 被签对象 | `PH14-T2`（`85d8b07`），§4 任务行 `no-test: 文档同步（纯文档，无行为可红；按 6.6 T-7 由 REVIEW 在收口复核签字）` |
+| 依据命令 1 | `git show --name-only --format= 85d8b07` → 仅 `docs/acceptance.md`、`docs/protocol.md`（无源码、无测试、无 ABI 文件） |
+| 依据命令 2 | `grep -c 'E_INTERRUPTED' docs/protocol.md` → `1`；命中行 `117:| \`E_INTERRUPTED\` | -32015 | 否 | 宿主主动中断当前求值 |` |
+| 依据命令 3 | `grep -c 'protocol.md §4 的 20 个错误码' docs/acceptance.md` → `1`（第 81 行 ACC-B-02） |
+| 依据命令 4 | `bash tools/check.sh` rc=0、`NEXCORE_JS=quickjs bash tools/check.sh` rc=0（§10 E5） |
+| 结论 | 该任务不改任何可执行路径，交付物是两行文本；`E_INTERRUPTED` 的唯一性（1 次）与取值（`-32015`）由命令 2 机械核对，计数同步由命令 3 核对。T-7 例外条件成立，签字通过，不因缺红证判未完成 |
+
+### 11.3 收口 tag 与推送
+
+执行时机在收口提交之后（tag 需指向该提交，message 需含其 sha 前 7 位，故本节实跑输出无法写进同一个提交）。四项校验与 `ls-remote` 原始输出回填于后续纯文档提交（按 6.7 V-4，纯文档不动版本号）。
+
+| 校验（6.7 V-7） | 命令 | 期望 |
+| --- | --- | --- |
+| ① 名称格式 | `echo v0.14.0 \| grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'` | rc=0 |
+| ② annotated | `git cat-file -t v0.14.0` | `tag` |
+| ③ 指向收口提交 | `git rev-parse v0.14.0^{commit}` | 等于收口提交 sha |
+| ④ 远端可追溯 | `git branch -r --contains <sha>` | 非空 |
+
+---
+
+## 12. 遗留项与挂账（收口登记）
+
+| # | 项 | 处置 |
+| --- | --- | --- |
+| K-7 | 中断/超时在协议侧可判定 | **关闭**：E1 产出 `E_TIMEOUT`、E2 产出 `E_INTERRUPTED`，两条 `last_error` 均为 9，ABI 错误面未动（E3/E6） |
+| K-7a | `message` 不是契约 | 不关闭；`protocol.md` §4 已写明调用方按 `code` 分支，`message` 仅日志/展示 |
+| K-7b | 统计键 20（`NX_STAT_INTERRUPT_REASON`） | 不做（§9 裁定 4），仍待具体消费者 |
+| K-7c | 移动端 / Windows 对 `E_INTERRUPTED` 的消费 | 环境缺口，UNVERIFIED；不在本机验证范围 |
+| PH14-N1 | 宿主只按信封前缀 `{"code":"E_` 识别错误（`hosts/shell/main.c:21`），**不按具体码分流**；`E_TIMEOUT` 与 `E_INTERRUPTED` 都返回退出码 1（实测 `NEX_TIMEOUT_MS=200 ./build/bin/nex -e 'while(true){}'` → rc=1） | 新挂账，非本 phase 判据。若后续需要 shell 语义（如超时 124、中断 130 以外的区分），另开卡；`$error` 信封已带可判定 `code`，库层无缺口 |
+| PH14-N2 | 本 phase 窗口内混入一项不在 §4 任务清单的提交 `155e903`（`feat(check): ⑭ Kotlin 编译由硬编码 UNVERIFIED 改为 kotlinc 真编译`），改 `tools/check.sh` 与新增 `tests/kotlin_syntax_negative.kt` | 如实登记：该提交属门禁能力补强，不属 PH-14 交付面，也未占用 PATCH（版本仍是 `0.13.0`）。对 6.6 T-6「任务清单在开工前写死」构成事实偏离，后续 phase 不得复用此做法；是否回流为独立卡片由用户裁定 |

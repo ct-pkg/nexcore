@@ -10,7 +10,7 @@
 | 常驻 | `[nexcore] 技术池` | ARCH | `docs/design.md`、battle 记录 | 待建 |
 | 常驻 | `[nexcore] 评审` | REVIEW | 复核结论、`verified` 证据 | 待建 |
 | phase | `[nexcore] P<nn> · <目标一句话>` | DEV / VERIFY | `docs/phases/PH-<n>/card.md` 与收口文档 | 尚无一期（按 §9.3 命名，两位补零） |
-| phase | `[nexcore] P14 · K-7 中断错误面分流` | DEV / VERIFY | `docs/phases/PH-14/card.md` | 已开卡（2026-11-16） |
+| phase | `[nexcore] P14 · K-7 中断错误面分流` | DEV / VERIFY | `docs/phases/PH-14/card.md` | 已收口（2026-11-16，`v0.14.0`；证据见卡 §10–§12） |
 | phase | `[nexcore] P15 · K-6 异步 spawn 前置` | DEV / VERIFY | `docs/phases/PH-15/card.md` | 已开卡（2026-11-16） |
 
 叙事：三类常驻对话仍未创建；PH-14/PH-15 的 phase 对话已登记（见上表），PH-01..PH-13 的历史台账未回填。在常驻角色落到对话里之前，本仓库仍不满足主规范 §3.1 的「角色落在对话里」，实现提交缺上游主张权。
@@ -45,7 +45,7 @@
 
 | 版本 | 位置 | 当前值 |
 | --- | --- | --- |
-| 产品版本 | `docs/README.md` 的「- 状态：v0.13.0（…）」一行 | `v0.13.0` |
+| 产品版本 | `docs/README.md` 的「- 状态：v0.14.0（…）」一行 | `v0.14.0` |
 | 规范版本 | `AGENTS.md` 生成块头 `<!-- spec:begin version=… sha256=… -->` | `1.10.0` / `e3905e9bf8637a1e486a8498ed653628ec3c50be53298c60e609efc3b6a33caf` |
 | 规范全文副本 | `docs/spec/ai-coding-workflow.md` | sha256 必须等于上方块头 |
 
