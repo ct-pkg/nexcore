@@ -413,16 +413,16 @@
 
 ---
 
-## D-22：nexcore 不是 CT 包，不参与 ct 共享库（EXT-NX-01）
+## D-22：本仓不是 ct 包，不参与 ct 包管理体系
 
-**背景**：CT 侧的 `ct pkg` 共享库体系只覆盖 ct-pkg 名下的包。本仓收到从 CT 仓移出的包外事项，其中属于 nexcore 的只有 EXT-NX-01（原提案 §10 S4），要求在本仓登记包形态，避免以后又被当成待办。
+**背景**：本仓的构建与分发只依赖 CT 语言工具链（`ct` 编译器与 `tools/nexcore_gen.py`），不经过任何包管理器。这个形态需要一条定案，避免以后把「补包描述文件」当成未完成项反复提出。
 
-**决定**：nexcore 登记为**「非 ct 包」**——不补 `ct.pkg`（不需要 `publisher` / `ns-root`），不进包索引与共享库，不参与 `ct pkg` 的发布/解析流程。
+**决定**：本仓登记为**「非 ct 包」**——不提供 `ct.pkg`（不需要 `publisher` / `ns-root`），不进包索引与共享库，不参与 ct 包管理器的发布与解析流程。
 
 **理由**：
 
-1. 本仓依赖的是 CT **语言工具链**（`ct` 编译器与 `tools/nexcore_gen.py` 生成器），不是 ct-pkg 的分发体系；两者不是一回事。
-2. 本仓已有独立的构建与门禁口径：`tools/check.sh`（两档 `NEXCORE_JS=null|quickjs`）、`tools/check-host.sh`、`tools/check-boundaries.sh`，产物是 `libnexcore.a` / `libnexcore.dylib` 与宿主 `nex`，不需要包索引再描述一遍。
-3. 纳入共享库会引入包的命名空间与发布约束，与已冻结的 ABI 面（7 个导出函数、单 `NexCoreConfig`）以及移动端直接链接 `.a`/`.dylib` 的接入方式不匹配。
+1. **依赖面是语言工具链，不是分发体系**：本仓用 `ct` 编译 `.ct` 单元、用 `tools/nexcore_gen.py` 生成映射，产物是 `libnexcore.a` / `libnexcore.dylib` 与宿主 `nex`；这些环节不需要包索引参与。
+2. **本仓已有独立且可执行的构建与门禁口径**：`tools/check.sh`（`NEXCORE_JS=null|quickjs` 两档）、`tools/check-host.sh`、`tools/check-boundaries.sh`；包管理器再描述一遍只会产生第二套真相。
+3. **纳入包体系与现有对外契约冲突**：包体系会引入命名空间与发布约束，而已冻结的对外 ABI 是 7 个导出函数、单一 `NexCoreConfig`，使用方直接链接 `.a`/`.dylib`；两者对「怎么被消费」的假设不一致。
 
-**后果**：本仓不新增 `ct.pkg`、不登记包索引、不向 CT 仓回写任何包信息。后续若有人把「给 nexcore 补 `ct.pkg`」当成待办，以本条为准；来源编号 EXT-NX-01 保留可追溯。
+**后果**：本仓不新增 `ct.pkg`、不登记包索引、不向任何包体系回写元数据。**这是一条定案，不产生后续动作**——不需要为此立 phase，也不需要有人跟进「补包文件」。若将来确有需求要求本仓进入包体系，那属于对外分发方式的变更，须先修订本决策，再谈实现。
