@@ -22,17 +22,22 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
            int32_t (*native_call)(void *user, const char *name, size_t name_len,
                                   const char *args_json, size_t args_len,
                                   char **out_json, size_t *out_len),
-           void *native_user, const char *native_names, int32_t native_names_len)
+           void *native_user, const char *native_names, int32_t native_names_len,
+           int32_t (*interrupt_call)(void *user), void *interrupt_user,
+           int32_t timeout_ms)
 {
     void *st;
 
     (void)bootstrap_js;
     (void)bootstrap_len;
-    /* 空后端没有引擎，原生能力无从注入；忽略全部 native_* 参数。 */
+    /* 空后端没有引擎，原生能力与中断都无从注入；忽略全部可选参数。 */
     (void)native_call;
     (void)native_user;
     (void)native_names;
     (void)native_names_len;
+    (void)interrupt_call;
+    (void)interrupt_user;
+    (void)timeout_ms;
     st = malloc(1);
     if (st == 0) return 0;
     return st;

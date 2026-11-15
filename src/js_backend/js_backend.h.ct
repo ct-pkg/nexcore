@@ -8,6 +8,8 @@ pub typedef int32_t (*NxNativeCallFn)(void *user,
                                       const char *args_json, size_t args_len,
                                       char **out_json, size_t *out_len);
 
+pub typedef int32_t (*NxInterruptFn)(void *user);
+
 namespace js_backend;
 
 /*
@@ -22,7 +24,9 @@ namespace js_backend;
  */
 pub void *init(const char *bootstrap_js, int32_t bootstrap_len,
                NxNativeCallFn native_call, void *native_user,
-               const char *native_names, int32_t native_names_len);
+               const char *native_names, int32_t native_names_len,
+               NxInterruptFn interrupt_call, void *interrupt_user,
+               int32_t timeout_ms);
 
 /*
  * 把 src 当作 JS 求值，结果以 malloc 缓冲返回，调用方负责 free。

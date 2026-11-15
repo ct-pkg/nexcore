@@ -89,6 +89,12 @@ pub typedef int32_t (*NexCoreNativeCall)(void *user,
                                          char **out_json, size_t *out_len);
 
 /*
+ * PH-13（K-4）：求值期间的宿主中断钩子。返回非 0 表示请求中止当前求值。
+ * 库在 JS 求值循环里轮询它，不在宿主回调里做 I/O。
+ */
+pub typedef int32_t (*NexCoreInterruptFn)(void *user);
+
+/*
  * 唯一的跨 ABI 结构体。硬约束：
  * - 不使用 trait（trait 会追加隐藏 vptr，平台侧布局会静默错位）；
  * - struct_size 是最小长度协商，不是严格相等；
@@ -118,6 +124,12 @@ pub struct NexCoreConfig {
     size_t native_names_len;
     /* PH-11 追加：0/缺省 = 表达式（现行行为）；1 = 程序模式（多语句、#!）。 */
     int32_t eval_mode;
+    /*
+     * PH-13 追加（K-4）：求值期间的中断钩子，返回非 0 即中止当前求值。
+     * 预算上限复用 default_timeout_ms（0 = 不限）；两者走同一条中断路径。
+     */
+    NexCoreInterruptFn interrupt_call;
+    void *interrupt_user;
 }
 
 pub enum NxConfigLayout {
@@ -131,6 +143,8 @@ pub enum NxConfigLayout {
     NEXCORE_CONFIG_NATIVE_SIZE = offsetof(struct NexCoreConfig, native_names_len) + sizeof(size_t),
     /* PH-11：eval_mode 可用的最小 struct_size（同上，绑字段偏移 + 宽度）。 */
     NEXCORE_CONFIG_EVAL_MODE_SIZE = offsetof(struct NexCoreConfig, eval_mode) + sizeof(int32_t),
+    /* PH-13：interrupt_call/interrupt_user 可用的最小 struct_size。 */
+    NEXCORE_CONFIG_INTERRUPT_SIZE = offsetof(struct NexCoreConfig, interrupt_user) + sizeof(void *),
     NEXCORE_CONFIG_CURRENT_SIZE = sizeof(struct NexCoreConfig),
 }
 

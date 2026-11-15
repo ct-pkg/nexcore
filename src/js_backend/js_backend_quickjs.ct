@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "quickjs.h"
 
 import js_backend_quickjs;
@@ -42,6 +43,11 @@ struct BackendState {
     int32_t names_count;
     int64_t jobs;
     int64_t exceptions;
+    int32_t (*interrupt_call)(void *user);
+    void *interrupt_user;
+    int32_t timeout_ms;
+    int64_t eval_start;
+    int32_t interrupt_reason;
 }
 
 /*
@@ -60,6 +66,8 @@ static const char *NXJB_NATIVE_INSTALL_JS =
     "})(__nx_names[__nx_i]);}";
 
 static JSValue js_native_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static int js_interrupt(JSRuntime *rt, void *opaque);
+static int64_t now_ms(void);
 
 static void free_state(struct BackendState *st)
 {
@@ -245,7 +253,9 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
            int32_t (*native_call)(void *user, const char *name, size_t name_len,
                                   const char *args_json, size_t args_len,
                                   char **out_json, size_t *out_len),
-           void *native_user, const char *native_names, int32_t native_names_len)
+           void *native_user, const char *native_names, int32_t native_names_len,
+           int32_t (*interrupt_call)(void *user), void *interrupt_user,
+           int32_t timeout_ms)
 {
     struct BackendState *st;
     JSValue v;
@@ -260,12 +270,19 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
     st->native_names_len = native_names_len;
     st->jobs = 0;
     st->exceptions = 0;
+    st->interrupt_call = interrupt_call;
+    st->interrupt_user = interrupt_user;
+    st->timeout_ms = timeout_ms;
+    st->eval_start = now_ms();
+    st->interrupt_reason = 0;
     st->rt = JS_NewRuntime();
     if (st->rt == 0) {
         free(st);
         return 0;
     }
     JS_SetHostPromiseRejectionTracker(st->rt, on_rejection, st);
+    /* K-4：求值期间轮询宿主钩子与预算，二者都走这条中断路径。 */
+    JS_SetInterruptHandler(st->rt, js_interrupt, st);
     st->ctx = JS_NewContext(st->rt);
     if (st->ctx == 0) {
         free_state(st);
@@ -288,6 +305,37 @@ void *init(const char *bootstrap_js, int32_t bootstrap_len,
         JS_FreeValue(st->ctx, v);
     }
     return st;
+}
+
+/* 毫秒级单调时钟：预算约束的是求值占用，不包含宿主等待。 */
+static int64_t now_ms(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
+/*
+ * 引擎中断回调：宿主钩子优先，其次预算。返回 1 让 JS 中止当前求值。
+ * 原因记在 state 里，供 eval 的异常路径给出可判定文案（K-4）。
+ */
+static int js_interrupt(JSRuntime *rt, void *opaque)
+{
+    struct BackendState *st;
+
+    (void)rt;
+    st = opaque;
+    if (st == 0) return 0;
+    if (st->interrupt_call != 0 && st->interrupt_call(st->interrupt_user) != 0) {
+        st->interrupt_reason = 1;
+        return 1;
+    }
+    if (st->timeout_ms > 0 && now_ms() - st->eval_start > (int64_t)st->timeout_ms) {
+        st->interrupt_reason = 2;
+        return 1;
+    }
+    return 0;
 }
 
 /* 把引擎异常转成 malloc 文案交回调用方（宿主据此打印；库内不再吞掉）。 */
@@ -338,6 +386,9 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
     st = h;
     *out = 0;
     *out_len = 0;
+    /* 预算从本条消息的求值开始计时；中断原因每条消息重置。 */
+    st->eval_start = now_ms();
+    st->interrupt_reason = 0;
 
     /*
      * 进入下一条消息前先把 job 队列清空（D-05：job 清空前不处理 inbox）。
@@ -376,6 +427,18 @@ int32_t eval(void *h, const char *src, int32_t len, int32_t mode,
     if (JS_IsException(value)) {
         value = JS_GetException(st->ctx);
         set_error_out(err, err_len, st->ctx, value);
+        /* 预算超时与宿主中断在引擎里都是 "interrupted"，这里给出可区分的文案。 */
+        if (st->interrupt_reason == 2) {
+            static const char TIMEOUT_MSG[] = "timeout: evaluation exceeded budget";
+            char *m = malloc(sizeof(TIMEOUT_MSG));
+
+            if (m != 0) {
+                memcpy(m, TIMEOUT_MSG, sizeof(TIMEOUT_MSG));
+                free(*err);
+                *err = m;
+                *err_len = (int32_t)(sizeof(TIMEOUT_MSG) - 1);
+            }
+        }
         return NXJB_ERR;
     }
 

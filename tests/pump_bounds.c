@@ -41,7 +41,7 @@ int main(void)
 
     bumps = 0;
     h = js_backend_init(boot, (int32_t)strlen(boot), count_call, 0,
-                        names, (int32_t)strlen(names));
+                        names, (int32_t)strlen(names), 0, 0, 0);
     if (h == 0) {
         printf("FAIL: init\n");
         return 1;
@@ -62,7 +62,7 @@ int main(void)
 
     /* 空队列：pump 必须立即返回 0，不阻塞。 */
     bumps = 0;
-    h = js_backend_init("var x=1;", 8, 0, 0, 0, 0);
+    h = js_backend_init("var x=1;", 8, 0, 0, 0, 0, 0, 0, 0);
     if (h == 0) {
         printf("FAIL: init(empty)\n");
         return 5;

@@ -71,6 +71,8 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     const char *native_names;
     int32_t native_names_len;
     int32_t eval_mode;
+    NexCoreInterruptFn interrupt_call;
+    void *interrupt_user;
 
     if (out == 0) return NX_E_INVALID_ARGUMENT;
     *out = 0;
@@ -110,6 +112,14 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
         }
     }
 
+    /* PH-13（K-4）：中断钩子。旧宿主不读该字段即视为「不可中断」，行为不变。 */
+    interrupt_call = 0;
+    interrupt_user = 0;
+    if (cfg->struct_size >= NEXCORE_CONFIG_INTERRUPT_SIZE) {
+        interrupt_call = cfg->interrupt_call;
+        interrupt_user = cfg->interrupt_user;
+    }
+
     q = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
     if (q == 0) return NX_E_INTERNAL;
     ob = queue::Ring.open(NEXCORE_DEFAULT_MAX_PENDING);
@@ -128,7 +138,9 @@ int32_t nexcore_create(const struct NexCoreConfig *cfg, NexCoreHandle *out)
     /* bootstrap_js 在这里第一次被真正解引用：交给 JS 后端（P1 为空实现）。 */
     js = js_backend::Backend.init(cfg->bootstrap_js, (int32_t)cfg->bootstrap_len,
                                   native_call, native_user,
-                                  native_names, native_names_len);
+                                  native_names, native_names_len,
+                                  interrupt_call, interrupt_user,
+                                  (int32_t)cfg->default_timeout_ms);
     if (js == 0) {
         queue::Ring.close(q);
         queue::Ring.close(ob);
