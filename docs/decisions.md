@@ -410,3 +410,19 @@
 **后果**：`src/NexCore.ct` 5 个调用点改名；新增 `src/js_backend/`（接口 + 空实现 + 生成物映射）；`units.json` 移除 `js_host` 条目并删除其生成映射；⑧⑨/smoke 三条 JS 语义检查移出 P1 绿线，改由 P2 承担。完整执行清单、判据与实施记录见 `docs/reviews/nexcore-p1-quickjs-ruling.md`。
 
 **实施状态（2026-11-15）**：8 步已落地。`bash tools/check.sh` rc=0（末行带 `NEXCORE_JS=null`），⑧⑨/smoke 记 SKIP 不计通过；同日 P2 施工完成接线——`NEXCORE_JS=quickjs` 走同目录第二实现 `js_backend_quickjs.ct`，⑧⑨/smoke 真跑 PASS，null 档行为不变。细节见 `docs/reviews/nexcore-p2-card-draft.md` §9。
+
+---
+
+## D-22：nexcore 不是 CT 包，不参与 ct 共享库（EXT-NX-01）
+
+**背景**：CT 侧的 `ct pkg` 共享库体系只覆盖 ct-pkg 名下的包。本仓收到从 CT 仓移出的包外事项，其中属于 nexcore 的只有 EXT-NX-01（原提案 §10 S4），要求在本仓登记包形态，避免以后又被当成待办。
+
+**决定**：nexcore 登记为**「非 ct 包」**——不补 `ct.pkg`（不需要 `publisher` / `ns-root`），不进包索引与共享库，不参与 `ct pkg` 的发布/解析流程。
+
+**理由**：
+
+1. 本仓依赖的是 CT **语言工具链**（`ct` 编译器与 `tools/nexcore_gen.py` 生成器），不是 ct-pkg 的分发体系；两者不是一回事。
+2. 本仓已有独立的构建与门禁口径：`tools/check.sh`（两档 `NEXCORE_JS=null|quickjs`）、`tools/check-host.sh`、`tools/check-boundaries.sh`，产物是 `libnexcore.a` / `libnexcore.dylib` 与宿主 `nex`，不需要包索引再描述一遍。
+3. 纳入共享库会引入包的命名空间与发布约束，与已冻结的 ABI 面（7 个导出函数、单 `NexCoreConfig`）以及移动端直接链接 `.a`/`.dylib` 的接入方式不匹配。
+
+**后果**：本仓不新增 `ct.pkg`、不登记包索引、不向 CT 仓回写任何包信息。后续若有人把「给 nexcore 补 `ct.pkg`」当成待办，以本条为准；来源编号 EXT-NX-01 保留可追溯。
