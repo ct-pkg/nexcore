@@ -1,0 +1,16 @@
+# nexcore - 跨端业务核心复用框架：QuickJS 运行时集成、C ABI 桥接、
+# JSON 协议与代码生成器 CLI。
+#
+# 包根是仓库根。CT 单元树在 `src/` 下（`tools/check.sh` 固定用
+# `--ns-root src` 与 `-I src`，`src/queue/queue.h.ct` 这类单元按目录名
+# 对应命名空间），因此 ns-root = src。
+#
+# `publisher` 与 `ns-root` 是 ct-pkg 共享库契约要求的两个身份键：`ct` 从
+# v0.54.0 起按 $CT_HOME/pkg/<publisher>/<name>/<version>/ 落盘。同一包的
+# 所有版本必须保持同一个 publisher，确定后不再修改；v0.13.0 / v0.14.0 两个
+# 旧 tag 早于本契约、没有这两个键，索引会跳过它们，身份从 v0.14.1 起生效。
+name = nexcore
+publisher = ct
+ns-root = src
+version = 0.14.1
+requires = ct >= 0.54.0

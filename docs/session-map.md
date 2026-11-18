@@ -45,7 +45,7 @@
 
 | 版本 | 位置 | 当前值 |
 | --- | --- | --- |
-| 产品版本 | `docs/README.md` 的「- 状态：v0.14.0（…）」一行 | `v0.14.0` |
+| 产品版本 | `docs/README.md` 的「- 状态：v0.14.1（…）」一行 | `v0.14.1` |
 | 规范版本 | `AGENTS.md` 生成块头 `<!-- spec:begin version=… sha256=… -->` | `1.12.0` / `e3905e9bf8637a1e486a8498ed653628ec3c50be53298c60e609efc3b6a33caf` |
 | 规范全文副本 | `docs/spec/ai-coding-workflow.md` | sha256 必须等于上方块头 |
 

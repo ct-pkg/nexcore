@@ -14,7 +14,7 @@ ct-NexCore 是**跨端业务核心复用框架**：让宿主项目的业务 core
 
 本目录只描述**契约与边界**，不包含实现代码。实现代码、QuickJS 嵌入验证与 CT 能力核查分别由其他角色在各自目录推进。
 
-- 状态：v0.14.0（`tools/check.sh` 由编码侧唯一维护，编号为 `0 / ①a~①c / ②a~②c / ③ / ④ / ⑤a ⑤b ⑤c / ⑥ / ⑦ / ⑧ / ⑨ / smoke / ⑩~⑰`，两档全量实跑通过（null 与 quickjs 均 `ALL CHECKS PASSED`）；`build/abi`/`build/impl` 路径口径收敛到 design §6.1 一处；统计键按 D-20 冻结为 `1..18` + `19` 哨兵，5 个新键落 `10..14`，counter 采样随子系统落地；PH-10 交付微任务泵、原生 Provider、`libnexcore.a` 与 `hosts/` 边界覆盖；PH-11 交付程序模式求值、`$error` 错误面与 `hosts/shell` 的 `nex` MVP；PH-12 关闭 K-1/K-3 并交付 `-e`、stdin、`process.argv/env`、SIGINT 标记；PH-13 关闭 K-4（求值期中断 + 预算）并交付同步 `Shell.spawn`；PH-14 关闭 K-7（中断/超时在协议侧按 `code` 分流，新增 `E_INTERRUPTED(-32015)`，`LAST_ERROR` 仍为 `NX_E_INTERNAL`））
+- 状态：v0.14.1（`tools/check.sh` 由编码侧唯一维护，编号为 `0 / ①a~①c / ②a~②c / ③ / ④ / ⑤a ⑤b ⑤c / ⑥ / ⑦ / ⑧ / ⑨ / smoke / ⑩~⑰`，两档全量实跑通过（null 与 quickjs 均 `ALL CHECKS PASSED`）；`build/abi`/`build/impl` 路径口径收敛到 design §6.1 一处；统计键按 D-20 冻结为 `1..18` + `19` 哨兵，5 个新键落 `10..14`，counter 采样随子系统落地；PH-10 交付微任务泵、原生 Provider、`libnexcore.a` 与 `hosts/` 边界覆盖；PH-11 交付程序模式求值、`$error` 错误面与 `hosts/shell` 的 `nex` MVP；PH-12 关闭 K-1/K-3 并交付 `-e`、stdin、`process.argv/env`、SIGINT 标记；PH-13 关闭 K-4（求值期中断 + 预算）并交付同步 `Shell.spawn`；PH-14 关闭 K-7（中断/超时在协议侧按 `code` 分流，新增 `E_INTERRUPTED(-32015)`，`LAST_ERROR` 仍为 `NX_E_INTERNAL`））
 - 适用范围：macOS/iOS（Swift）与 Android（Kotlin）为首批平台；Linux/Windows 暂不在首批验收范围
 - CT 基线：`ct v0.44.2`（`ct-lang` 仓库 tag `v0.44.2` = `328e5e63`；2026-11-15 重定基线，原声明 `c27da3d` / v0.19.1 作废）。CT 迭代很快，本文引用的行为均标注了实测方式；升级 CT 后需重跑「CT 能力核查」中的探针
 
